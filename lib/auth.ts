@@ -5,7 +5,7 @@ const JWT_SECRET = process.env.JWT_SECRET!;
 
 export function signToken(payload: {
   userId: string;
-  role: "PLAYER" | "ADMIN" | "COMPANY_EMPLOYEE";
+  role: "PLAYER" | "ADMIN" | "COMPANY_EMPLOYEE" | "VISITOR";
   companyId?: string;
 }) {
   return jwt.sign(payload, JWT_SECRET, {
@@ -22,7 +22,7 @@ export async function getAuthUser() {
   try {
     return jwt.verify(token, JWT_SECRET) as {
       userId: string;
-      role: "PLAYER" | "ADMIN" | "COMPANY_EMPLOYEE";
+      role: "PLAYER" | "ADMIN" | "COMPANY_EMPLOYEE" | "VISITOR";
       companyId?: string;
     };
   } catch {

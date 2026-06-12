@@ -31,13 +31,16 @@ const UserSchema = new Schema(
   { timestamps: true }
 );
 
-UserSchema.pre("save", function (next: any) {
+UserSchema.pre("save", async function () {
   if (this.isModified("coins") && !this.isModified("coinsAvailable")) {
     this.coinsAvailable = this.coins;
   } else {
     this.coins = this.coinsAvailable;
   }
-  next();
 });
 
-export const User = models.User || mongoose.model("User", UserSchema);
+if (models.User) {
+  delete (models as any).User;
+}
+
+export const User = mongoose.model("User", UserSchema);

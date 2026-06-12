@@ -17,12 +17,24 @@ export async function GET() {
       u.coinsFrozen = u.coinsAvailable;
       u.coinsAvailable = 0;
       u.coins = 0;
-      u.coinsFrozenReason = `Plan expired on ${new Date(u.coinPlanExpiryDate).toLocaleDateString("en-IN")}`;
+      u.coinsFrozenReason = `Plan expired on ${u.coinPlanExpiryDate ? new Date(u.coinPlanExpiryDate).toLocaleDateString("en-IN") : "unknown date"}`;
       u.coinsFrozenAt = new Date();
       await u.save();
     }
 
-    return NextResponse.json({ success: true, message: "Booking statuses and coin expirations automated successfully." });
+    // Auto expire unpaid booking intents
+    const { BookingIntent } = await import("@/models/BookingIntent");
+    await BookingIntent.updateMany(
+      {
+        status: "PENDING_PAYMENT",
+        expiresAt: { $lt: new Date() },
+      },
+      {
+        $set: { status: "EXPIRED" }
+      }
+    );
+
+    return NextResponse.json({ success: true, message: "Booking statuses, coin expirations, and intent expirations automated successfully." });
   } catch (error: any) {
     return NextResponse.json({ message: error.message || "Automation failed" }, { status: 500 });
   }

@@ -62,16 +62,16 @@ const BookingSchema = new Schema(
   { timestamps: true }
 );
 
-BookingSchema.pre("save", function (this: any, next: any) {
-  if (this.paymentStatus === "PAID" && this.gatewayPaymentStatus === "PENDING" && this.adminPaymentStatus === "PENDING") {
-    this.adminPaymentStatus = "PAID";
+BookingSchema.pre("save", async function () {
+  const doc = this as any;
+  if (doc.paymentStatus === "PAID" && doc.gatewayPaymentStatus === "PENDING" && doc.adminPaymentStatus === "PENDING") {
+    doc.adminPaymentStatus = "PAID";
   }
-  this.effectivePaymentStatus = (this.gatewayPaymentStatus === "PAID" || this.adminPaymentStatus === "PAID" || this.adminPaymentStatus === "WAIVED") ? "PAID" : "PENDING";
+  doc.effectivePaymentStatus = (doc.gatewayPaymentStatus === "PAID" || doc.adminPaymentStatus === "PAID" || doc.adminPaymentStatus === "WAIVED") ? "PAID" : "PENDING";
   // Sync legacy paymentStatus for backward compatibility
-  if (this.effectivePaymentStatus === "PAID") {
-    this.paymentStatus = "PAID";
+  if (doc.effectivePaymentStatus === "PAID") {
+    doc.paymentStatus = "PAID";
   }
-  next();
 });
 
 if (models.Booking) {

@@ -47,6 +47,10 @@ export async function POST(req: NextRequest) {
     if (!isValid) {
       order.status = "FAILED";
       await order.save();
+      if (order.purpose === "BOOKING_INTENT") {
+        const { resolveBookingIntent } = await import("@/lib/booking-intent-resolver");
+        await resolveBookingIntent(razorpayOrderId, razorpayPaymentId || "failed", "FAILED");
+      }
       return NextResponse.json(
         { success: false, message: "Payment signature verification failed" },
         { status: 400 }
@@ -57,6 +61,11 @@ export async function POST(req: NextRequest) {
     order.razorpayPaymentId = razorpayPaymentId;
     order.status = "PAID";
     await order.save();
+
+    if (order.purpose === "BOOKING_INTENT") {
+      const { resolveBookingIntent } = await import("@/lib/booking-intent-resolver");
+      await resolveBookingIntent(razorpayOrderId, razorpayPaymentId, "PAID");
+    }
 
     // If bookingId is in metadata, update booking paymentStatus to PAID
     const bookingId = order.metadata?.get("bookingId");

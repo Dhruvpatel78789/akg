@@ -32,21 +32,24 @@ const AdditionalChargeSchema = new Schema(
     adminOverrideBy: { type: Schema.Types.ObjectId, ref: "User" },
     adminOverrideAt: { type: Date },
     settledAt: Date,
+    additionalUnits: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
 
-AdditionalChargeSchema.pre("save", function (this: any, next: any) {
-  if (this.status === "PAID" && this.gatewayPaymentStatus === "PENDING" && this.adminPaymentStatus === "PENDING") {
-    this.adminPaymentStatus = "PAID";
+AdditionalChargeSchema.pre("save", async function () {
+  const doc = this as any;
+  if (doc.status === "PAID" && doc.gatewayPaymentStatus === "PENDING" && doc.adminPaymentStatus === "PENDING") {
+    doc.adminPaymentStatus = "PAID";
   }
-  this.effectivePaymentStatus = (this.gatewayPaymentStatus === "PAID" || this.adminPaymentStatus === "PAID" || this.adminPaymentStatus === "WAIVED") ? "PAID" : "PENDING";
-  if (this.effectivePaymentStatus === "PAID") {
-    this.status = "PAID";
+  doc.effectivePaymentStatus = (doc.gatewayPaymentStatus === "PAID" || doc.adminPaymentStatus === "PAID" || doc.adminPaymentStatus === "WAIVED") ? "PAID" : "PENDING";
+  if (doc.effectivePaymentStatus === "PAID") {
+    doc.status = "PAID";
   }
-  next();
 });
 
-export const AdditionalCharge =
-  models.AdditionalCharge ||
-  mongoose.model("AdditionalCharge", AdditionalChargeSchema);
+if (models.AdditionalCharge) {
+  delete (models as any).AdditionalCharge;
+}
+
+export const AdditionalCharge = mongoose.model("AdditionalCharge", AdditionalChargeSchema);

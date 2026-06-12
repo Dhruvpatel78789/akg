@@ -27,6 +27,7 @@ const navItems = [
   { label: "Plans", href: "/admin/plans", icon: CalendarClock },
   { label: "Members", href: "/admin/members", icon: Users },
   { label: "Bookings", href: "/admin/bookings", icon: CalendarClock },
+  { label: "Booking Intents", href: "/admin/booking-intents", icon: CalendarClock },
   { label: "Active Sessions", href: "/admin/active-sessions", icon: Clock },
   { label: "Companies", href: "/admin/companies", icon: Building2 },
   { label: "Company Entries", href: "/admin/company-entries", icon: Clock },
@@ -122,6 +123,7 @@ export default function AdminLayout({
           else if (item.href === "/admin/plans") sectionKey = "plans";
           else if (item.href === "/admin/members") sectionKey = "members";
           else if (item.href === "/admin/bookings") sectionKey = "bookings";
+          else if (item.href === "/admin/booking-intents") sectionKey = "bookings";
           else if (item.href === "/admin/active-sessions") {
             sectionKey = "bookings";
             subKey = "ongoingSessions";
