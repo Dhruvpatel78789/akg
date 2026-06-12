@@ -1,0 +1,339 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { connectDB } from "@/lib/mongodb";
+import { getAuthUser } from "@/lib/auth";
+import { User } from "@/models/User";
+import { Plan } from "@/models/Plan";
+import { Membership } from "@/models/Membership";
+import { Transaction } from "@/models/Transaction";
+import { Game } from "@/models/Game";
+import { Booking } from "@/models/Booking";
+import { PaymentOrder } from "@/models/PaymentOrder";
+
+const schema = z.object({
+  planId: z.string(),
+  durationIndex: z.number().min(0).default(0),
+  startTime: z.string().optional(),
+  endTime: z.string().optional(),
+  razorpayOrderId: z.string().optional(),
+});
+
+function getMinutes(start: string, end: string) {
+  if (!start || !end) return 0;
+
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+
+  return eh * 60 + em - (sh * 60 + sm);
+}
+
+function timeStringToTodayDate(time: string) {
+  const [hours, minutes] = time.split(":").map(Number);
+
+  const date = new Date();
+  date.setHours(hours, minutes, 0, 0);
+
+  return date;
+}
+
+function inferDurationFromLabel(label?: string) {
+  if (!label) {
+    return { months: 0, days: 0, totalDays: 0 };
+  }
+
+  const monthMatch = label.match(/(\d+)\s*M/i);
+  const dayMatch = label.match(/(\d+)\s*D/i);
+
+  const months = monthMatch ? Number(monthMatch[1]) : 0;
+  const days = dayMatch ? Number(dayMatch[1]) : 0;
+
+  return {
+    months,
+    days,
+    totalDays: months * 30 + days,
+  };
+}
+
+function normalizeDuration(duration: any) {
+  const inferred = inferDurationFromLabel(duration?.label);
+
+  const months =
+    Number(duration?.months || 0) > 0
+      ? Number(duration.months)
+      : inferred.months;
+
+  const days =
+    Number(duration?.days || 0) > 0
+      ? Number(duration.days)
+      : inferred.days;
+
+  const totalDays =
+    Number(duration?.totalDays || 0) > 0
+      ? Number(duration.totalDays)
+      : months * 30 + days;
+
+  return {
+    months,
+    days,
+    totalDays,
+  };
+}
+
+export async function POST(request: Request) {
+  try {
+    await connectDB();
+
+    const authUser = await getAuthUser();
+
+    if (!authUser) {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const result = schema.safeParse(body);
+
+    if (!result.success) {
+      return NextResponse.json({ message: "Invalid input" }, { status: 400 });
+    }
+
+    const user = await User.findById(authUser.userId);
+
+    if (!user) {
+      return NextResponse.json({ message: "User not found" }, { status: 401 });
+    }
+
+    const plan = await Plan.findOne({
+      _id: result.data.planId,
+      active: true,
+      softDeleted: false,
+    });
+
+    if (!plan) {
+      return NextResponse.json({ message: "Plan not found" }, { status: 404 });
+    }
+
+    const { razorpayOrderId } = result.data;
+    if (!razorpayOrderId) {
+      return NextResponse.json({ message: "razorpayOrderId is required to complete this purchase." }, { status: 400 });
+    }
+
+    const pOrder = await PaymentOrder.findOne({ razorpayOrderId });
+    if (!pOrder || pOrder.status !== "PAID") {
+      return NextResponse.json({ message: "Unverified transaction. Please process payment first." }, { status: 400 });
+    }
+
+    if (plan.type === "COINS") {
+      const coinsToAdd = (plan.coinsAmount || 0) + (plan.bonusCoins || 0);
+      const validityDays = plan.validityDays || 30;
+
+      const now = new Date();
+      
+      // Auto unfreeze previous frozen coins and merge
+      const previousFrozen = user.coinsFrozen || 0;
+      user.coinsAvailable = (user.coinsAvailable || 0) + previousFrozen + coinsToAdd;
+      user.coinsFrozen = 0;
+      user.coinsFrozenReason = "";
+      user.coinsFrozenAt = undefined;
+
+      user.totalCoinsInCycle = user.coinsAvailable;
+      user.coins = user.coinsAvailable;
+
+      user.dailyCoinSpendLimit = plan.dailyCoinSpendLimit || 0;
+      user.activePlanId = plan._id;
+      if (user.role !== "PLAYER" && user.role !== "ADMIN") {
+        user.role = "PLAYER";
+      }
+      
+      const newExpiry = new Date(now.getTime() + validityDays * 24 * 60 * 60 * 1000);
+      user.coinPlanExpiryDate = newExpiry;
+      await user.save();
+
+      // Create a Membership record for the Coin Plan
+      await Membership.create({
+        userId: user._id,
+        planId: plan._id,
+        membershipType: "COINS",
+        gameId: plan.gameId,
+        gameName: plan.gameName || "Coin Plan",
+        durationLabel: `${validityDays} Days`,
+        months: 0,
+        days: validityDays,
+        totalDays: validityDays,
+        startDate: now,
+        startTime: now,
+        endTime: newExpiry,
+        price: plan.price,
+        originalPrice: plan.price,
+        status: "ACTIVE",
+        paymentStatus: "PAID",
+      });
+
+      await Transaction.create({
+        userId: user._id,
+        type: "COINS_PURCHASE",
+        amount: plan.price || 0,
+        coins: coinsToAdd,
+        note: `Purchased coin plan: ${plan.name} - Validity: ${validityDays} Days`,
+      });
+
+      return NextResponse.json({ message: "Coins purchased" });
+    }
+
+    const duration = plan.durations?.[result.data.durationIndex];
+
+    if (!duration) {
+      return NextResponse.json({ message: "Invalid duration" }, { status: 400 });
+    }
+
+    const normalizedDuration = normalizeDuration(duration);
+
+    if (normalizedDuration.totalDays <= 0) {
+      return NextResponse.json(
+        {
+          message:
+            "Invalid plan duration. Edit this plan in admin and set months or days correctly.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const game = await Game.findById(plan.gameId).lean();
+
+    if (!game) {
+      return NextResponse.json({ message: "Game not found" }, { status: 404 });
+    }
+
+    const startTime = plan.allowUserTimeSelection
+      ? result.data.startTime
+      : plan.adminStartTime;
+
+    const endTime = plan.allowUserTimeSelection
+      ? result.data.endTime
+      : plan.adminEndTime;
+
+    if (!startTime || !endTime) {
+      return NextResponse.json(
+        { message: "Start time and end time are required" },
+        { status: 400 }
+      );
+    }
+
+    const sessionMinutes = getMinutes(startTime, endTime);
+
+    if (sessionMinutes <= 0) {
+      return NextResponse.json(
+        { message: "End time must be after start time" },
+        { status: 400 }
+      );
+    }
+
+    if (
+      sessionMinutes < game.duration ||
+      sessionMinutes > game.maximumDuration
+    ) {
+      return NextResponse.json(
+        {
+          message: `Session duration must be between ${game.duration} and ${game.maximumDuration} minutes`,
+        },
+        { status: 400 }
+      );
+    }
+
+    if (sessionMinutes % game.duration !== 0) {
+      return NextResponse.json(
+        {
+          message: `Session duration must be in multiples of ${game.duration} minutes`,
+        },
+        { status: 400 }
+      );
+    }
+
+    // Keep both memberships active - user.activePlanId is now updated to the newly bought plan 
+    // but the actual Membership records in DB both remain ACTIVE.
+    user.activePlanId = plan._id;
+    if (user.role !== "PLAYER" && user.role !== "ADMIN") {
+      user.role = "PLAYER";
+    }
+    await user.save();
+
+    const baseDate = new Date(); // Starts today
+
+    const membership = await Membership.create({
+      userId: user._id,
+      planId: plan._id,
+      membershipType: "FIXED",
+      gameId: plan.gameId,
+      gameName: plan.gameName,
+      durationLabel: duration.label,
+
+      months: normalizedDuration.months,
+      days: normalizedDuration.days,
+      totalDays: normalizedDuration.totalDays,
+
+      startDate: baseDate,
+      startTime: timeStringToTodayDate(startTime),
+      endTime: timeStringToTodayDate(endTime),
+
+      price: duration.finalPrice,
+      originalPrice: duration.originalPrice,
+
+      sessionMinutes,
+      bufferMinutes: game.bufferMinutes || 0,
+
+      status: "ACTIVE",
+      paymentStatus: "PAID",
+    });
+
+    // Generate Booking slots for each day of the membership period
+    const [startH, startM] = startTime.split(":").map(Number);
+    const [endH, endM] = endTime.split(":").map(Number);
+    const bookingPromises = [];
+    
+
+    for (let d = 0; d < normalizedDuration.totalDays; d++) {
+      const currentDayStart = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() + d, startH, startM, 0, 0);
+      const currentDayEnd = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() + d, endH, endM, 0, 0);
+      
+      // If the duration crosses midnight
+      if (endH < startH || (endH === startH && endM < startM)) {
+        currentDayEnd.setDate(currentDayEnd.getDate() + 1);
+      }
+
+      bookingPromises.push(
+        Booking.create({
+          userId: user._id,
+          gameId: plan.gameId,
+          gameName: plan.gameName,
+          startTime: currentDayStart,
+          endTime: currentDayEnd,
+          price: 0,
+          coinCost: 0,
+          playersCount: duration.playersIncluded || 1,
+          crossMidnight: endH < startH || (endH === startH && endM < startM),
+          playerType: "MEMBER",
+          paymentMode: "coins",
+          paymentStatus: "PAID",
+          status: "BOOKED",
+        })
+      );
+    }
+    await Promise.all(bookingPromises);
+
+    await Transaction.create({
+      userId: user._id,
+      type: "PLAN_PURCHASE",
+      amount: duration.finalPrice,
+      coins: 0,
+      note: `Purchased membership: ${plan.name} - ${duration.label}`,
+    });
+
+    return NextResponse.json({ message: "Membership purchased" });
+  } catch (error) {
+    console.error("POST /api/player/membership/purchase error:", error);
+
+    return NextResponse.json(
+      { message: "Purchase failed. Check server logs." },
+      { status: 500 }
+    );
+  }
+}
