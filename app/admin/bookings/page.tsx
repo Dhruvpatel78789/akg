@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { Edit2, Trash2, Search, SlidersHorizontal, CheckSquare, Square, X, Eye, ShieldAlert } from "lucide-react";
+import { formatToISTDate, formatToISTDateTimeString, getBookingDisplayStatus } from "@/lib/time";
 
 type Booking = {
   _id: string;
@@ -85,24 +86,17 @@ const tabs = [
 type Tab = (typeof tabs)[number];
 
 function formatDateTime(value?: string) {
-  if (!value) return "-";
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return "-";
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = d.toLocaleString("en-IN", { month: "short" });
-  const hour = String(d.getHours()).padStart(2, '0');
-  const minute = String(d.getMinutes()).padStart(2, '0');
-  return `${day} ${month}, ${hour}:${minute}`;
+  return formatToISTDateTimeString(value);
 }
 
 function getEndSuffix(startTime?: string, endTime?: string) {
   if (!startTime || !endTime) return "";
-  const s = new Date(startTime);
-  const e = new Date(endTime);
-  if (isNaN(s.getTime()) || isNaN(e.getTime())) return "";
-  const startDay = new Date(s.getFullYear(), s.getMonth(), s.getDate());
-  const endDay = new Date(e.getFullYear(), e.getMonth(), e.getDate());
-  const diffDays = Math.round((endDay.getTime() - startDay.getTime()) / (24 * 3600 * 1000));
+  const sDateStr = formatToISTDate(startTime);
+  const eDateStr = formatToISTDate(endTime);
+  if (!sDateStr || !eDateStr) return "";
+  const s = new Date(sDateStr + "T00:00:00Z");
+  const e = new Date(eDateStr + "T00:00:00Z");
+  const diffDays = Math.round((e.getTime() - s.getTime()) / (24 * 3600 * 1000));
   if (diffDays > 0) {
     return ` (+${diffDays} day${diffDays > 1 ? 's' : ''})`;
   }
@@ -535,14 +529,24 @@ export default function AdminBookingsPage() {
                     {visibleColumns.exitTime && <td>{formatDateTime(booking.exitedTime)}</td>}
                     {visibleColumns.status && (
                       <td>
-                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-black ${
-                          booking.status === "BOOKED" ? "bg-blue-100 text-blue-800" :
-                          booking.status === "STARTED" ? "bg-yellow-100 text-yellow-800" :
-                          booking.status === "COMPLETED" ? "bg-emerald-100 text-emerald-800" :
-                          "bg-rose-100 text-rose-800"
-                        }`}>
-                          {booking.status}
-                        </span>
+                        {(() => {
+                          const derivedStatus = getBookingDisplayStatus(booking);
+                          const style = 
+                            derivedStatus === "Booked" || derivedStatus === "Confirmed"
+                              ? "bg-blue-100 text-blue-800"
+                              : derivedStatus === "Started"
+                              ? "bg-yellow-100 text-yellow-800"
+                              : derivedStatus === "Completed"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : derivedStatus === "Pending Payment"
+                              ? "bg-amber-100 text-amber-800 animate-pulse"
+                              : "bg-rose-100 text-rose-800";
+                          return (
+                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-black uppercase ${style}`}>
+                              {derivedStatus}
+                            </span>
+                          );
+                        })()}
                       </td>
                     )}
                     {visibleColumns.payment && (

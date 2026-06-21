@@ -124,24 +124,25 @@ function formatSeconds(totalSeconds: number) {
     seconds: String(seconds).padStart(2, "0"),
   };
 }
+import {
+  formatToISTDate,
+  formatToISTTime,
+  formatToISTDateTimeString,
+  getBookingDisplayStatus,
+} from "@/lib/time";
 
 function formatTime(value?: string) {
-  if (!value) return "00:00";
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return "-";
-  const h = String(d.getHours()).padStart(2, '0');
-  const m = String(d.getMinutes()).padStart(2, '0');
-  return `${h}:${m}`;
+  return formatToISTTime(value);
 }
 
 function getEndSuffix(startTime?: string, endTime?: string) {
   if (!startTime || !endTime) return "";
-  const s = new Date(startTime);
-  const e = new Date(endTime);
-  if (isNaN(s.getTime()) || isNaN(e.getTime())) return "";
-  const startDay = new Date(s.getFullYear(), s.getMonth(), s.getDate());
-  const endDay = new Date(e.getFullYear(), e.getMonth(), e.getDate());
-  const diffDays = Math.round((endDay.getTime() - startDay.getTime()) / (24 * 3600 * 1000));
+  const sDateStr = formatToISTDate(startTime);
+  const eDateStr = formatToISTDate(endTime);
+  if (!sDateStr || !eDateStr) return "";
+  const s = new Date(sDateStr + "T00:00:00Z");
+  const e = new Date(eDateStr + "T00:00:00Z");
+  const diffDays = Math.round((e.getTime() - s.getTime()) / (24 * 3600 * 1000));
   if (diffDays > 0) {
     return ` (+${diffDays} day${diffDays > 1 ? 's' : ''})`;
   }
@@ -150,11 +151,23 @@ function getEndSuffix(startTime?: string, endTime?: string) {
 
 function formatDate(value?: string) {
   if (!value) return "";
+  return formatToISTDateTimeString(value).split(",")[0];
+}
 
-  return new Date(value).toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-  });
+function formatDateWithYear(value?: string) {
+  if (!value) return "-";
+  const dateStr = formatToISTDate(value);
+  if (!dateStr) return "-";
+  const [y, m, d] = dateStr.split("-");
+  const monthLabel = new Date(Number(y), Number(m) - 1, Number(d)).toLocaleString("en-IN", { month: "short" });
+  return `${d} ${monthLabel} ${y}`;
+}
+
+function formatDateStr(dateStr: string) {
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("-");
+  const monthLabel = new Date(Number(y), Number(m) - 1, Number(d)).toLocaleString("en-IN", { month: "short" });
+  return `${d} ${monthLabel} ${y}`;
 }
 
 function FlipUnit({ value }: { value: string }) {
@@ -169,10 +182,7 @@ function FlipUnit({ value }: { value: string }) {
 }
 
 function toDateKey(date: Date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return formatToISTDate(date);
 }
 
 function getCalendar(calendarSessions: Booking[]) {
@@ -319,7 +329,7 @@ export default function PlayerDashboardPage() {
       const [h, m] = rescheduleStartTime.split(":").map(Number);
       const chosenTime = new Date(sessionDate);
       chosenTime.setHours(h, m, 0, 0);
-      if (chosenTime.getTime() < today.getTime() - 3 * 60 * 1000) {
+      if (chosenTime.getTime() < today.getTime() - 5 * 60 * 1000) {
         setRescheduleValidationError("Cannot reschedule to a past time.");
         return;
       }
@@ -981,7 +991,7 @@ export default function PlayerDashboardPage() {
                     >
                       <div className="flex justify-between items-center">
                         <span className="text-sm font-black text-[var(--primary)]">
-                          {item.startTime ? new Date(item.startTime).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "-"}
+                          {item.startTime ? formatDateWithYear(item.startTime) : "-"}
                         </span>
                         <span className="text-sm font-extrabold text-gray-600">
                           Played: {durationMins} Minutes
@@ -1061,9 +1071,22 @@ export default function PlayerDashboardPage() {
                 </h2>
                 <p className="text-sm font-bold text-gray-500">{data.activeSession.court || "Court not assigned"}</p>
               </div>
-              <span className="bg-emerald-50 text-emerald-800 text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase">
-                {data.activeSession.status}
-              </span>
+              {(() => {
+                const derivedStatus = getBookingDisplayStatus(data.activeSession);
+                const badgeStyle = 
+                  derivedStatus === "Booked" || derivedStatus === "Confirmed" || derivedStatus === "Completed"
+                    ? "bg-emerald-50 text-emerald-800 border-emerald-100"
+                    : derivedStatus === "Started"
+                    ? "bg-yellow-50 text-yellow-800 border-yellow-100"
+                    : derivedStatus === "Pending Payment"
+                    ? "bg-amber-50 text-amber-805 border-amber-100 animate-pulse"
+                    : "bg-rose-50 text-rose-800 border-rose-100";
+                return (
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border ${badgeStyle}`}>
+                    {derivedStatus}
+                  </span>
+                );
+              })()}
             </div>
 
             <div className="grid grid-cols-2 gap-4 border-t pt-4 border-gray-100 text-xs font-bold text-gray-700">
@@ -1134,7 +1157,7 @@ export default function PlayerDashboardPage() {
               tomorrow.setDate(tomorrow.getDate() + 1);
               const tomorrowKey = toDateKey(tomorrow);
 
-              let heading = `Sessions on ${new Date(formattedSelectedDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}`;
+              let heading = `Sessions on ${formatDateStr(formattedSelectedDate)}`;
               if (formattedSelectedDate === todayKey) {
                 heading = "Today's Sessions";
               } else if (formattedSelectedDate === tomorrowKey) {
@@ -1160,9 +1183,22 @@ export default function PlayerDashboardPage() {
                                 Court: {session.court || "Court A"}
                               </p>
                             </div>
-                            <span className="bg-emerald-50 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
-                              {session.status}
-                            </span>
+                             {(() => {
+                              const derivedStatus = getBookingDisplayStatus(session);
+                              const badgeStyle = 
+                                derivedStatus === "Booked" || derivedStatus === "Confirmed" || derivedStatus === "Completed"
+                                  ? "bg-emerald-50 text-emerald-800 border-emerald-100"
+                                  : derivedStatus === "Started"
+                                  ? "bg-yellow-50 text-yellow-800 border-yellow-100"
+                                  : derivedStatus === "Pending Payment"
+                                  ? "bg-amber-50 text-amber-805 border-amber-100 animate-pulse"
+                                  : "bg-rose-50 text-rose-800 border-rose-100";
+                              return (
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${badgeStyle}`}>
+                                  {derivedStatus}
+                                </span>
+                              );
+                            })()}
                           </div>
 
                           <div className="text-xs font-bold text-gray-600">
@@ -1675,7 +1711,7 @@ export default function PlayerDashboardPage() {
               <div className="bg-gray-50 p-3.5 rounded-2xl border border-gray-200/50 space-y-1">
                 <p>Game Name: <span className="font-black text-[var(--primary)]">{reschedulingSession.gameName}</span></p>
                 <p>Assigned Court: <span className="font-black text-[var(--primary)]">{reschedulingSession.court || "Court A"}</span></p>
-                <p>Booking Date: <span className="font-black text-[var(--primary)]">{reschedulingSession.startTime ? new Date(reschedulingSession.startTime).toLocaleDateString("en-IN") : "-"}</span></p>
+                <p>Booking Date: <span className="font-black text-[var(--primary)]">{reschedulingSession.startTime ? formatDateWithYear(reschedulingSession.startTime) : "-"}</span></p>
               </div>
 
               {(rescheduleValidationError || rescheduleError) && (

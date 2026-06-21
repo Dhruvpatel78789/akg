@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Search, Calendar, Clock, Phone, User as UserIcon, RefreshCw, XCircle, AlertTriangle, CheckCircle, Tag } from "lucide-react";
+import { formatToISTTime } from "@/lib/time";
 
 export default function AdminBookingIntentsPage() {
   const [intents, setIntents] = useState<any[]>([]);
@@ -327,7 +328,7 @@ export default function AdminBookingIntentsPage() {
               </div>
               <div>
                 <span className="text-[10px] text-gray-400 font-black block uppercase">Expires At</span>
-                <span className="text-rose-600">{new Date(selectedIntent.expiresAt).toLocaleTimeString("en-IN")}</span>
+                <span className="text-rose-600">{formatToISTTime(selectedIntent.expiresAt)}</span>
               </div>
             </div>
 

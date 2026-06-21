@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Home, Calendar, Clock, User, Phone, Mail, Cake, ShieldCheck } from "lucide-react";
+import { parseIST, formatToISTDate, formatToISTTime } from "@/lib/time";
 
 type Game = {
   _id: string;
@@ -46,21 +47,23 @@ export default function VisitorBookingPage() {
 
   const isPastTime = useMemo(() => {
     if (!date || !startTime) return false;
-    const [year, month, day] = date.split("-").map(Number);
-    const [hours, minutes] = startTime.split(":").map(Number);
-    const bookingStart = new Date(year, month - 1, day, hours, minutes, 0, 0);
-    return bookingStart.getTime() < currentTime.getTime() - 3 * 60 * 1000;
+    const bookingStart = parseIST(date, startTime);
+    return bookingStart.getTime() < currentTime.getTime() - 5 * 60 * 1000;
   }, [date, startTime, currentTime]);
 
   const isImmediate = useMemo(() => {
     if (!date || !startTime) return false;
-    const now = new Date();
-    const todayStr = now.toLocaleDateString("en-CA");
+    const todayStr = formatToISTDate(new Date());
     if (date !== todayStr) return false;
     
     const [sh, sm] = startTime.split(":").map(Number);
     const startMinutes = sh * 60 + sm;
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    
+    // Get current minutes in IST
+    const nowIST = new Date();
+    const timeStr = formatToISTTime(nowIST);
+    const [ch, cm] = timeStr.split(":").map(Number);
+    const currentMinutes = ch * 60 + cm;
     
     // Within 15 minutes of current time or in the past (today) is considered immediate/now
     return Math.abs(startMinutes - currentMinutes) <= 15 || startMinutes < currentMinutes;

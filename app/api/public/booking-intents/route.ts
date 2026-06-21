@@ -20,15 +20,12 @@ const inputSchema = z.object({
   source: z.enum(["WHATSAPP", "VOICE"]),
 });
 
+import { parseIST } from "@/lib/time";
+
 function parseDateTime(dateStr: string, timeStr: string, addDays: number = 0) {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const [hours, minutes] = timeStr.split(":").map(Number);
-  const date = new Date(year, month - 1, day, hours, minutes, 0, 0);
-  if (addDays > 0) {
-    date.setDate(date.getDate() + addDays);
-  }
-  return date;
+  return parseIST(dateStr, timeStr, addDays);
 }
+
 
 function calculateBasePrice(rule: any, playersIncluded: number) {
   if (rule.mode === "PER_PLAYER") {
@@ -70,7 +67,7 @@ export async function POST(request: Request) {
     const start = parseDateTime(date, startTime);
     const end = parseDateTime(date, endTime, crossMidnight ? 1 : 0);
 
-    if (start.getTime() < Date.now() - 3 * 60 * 1000) {
+    if (start.getTime() < Date.now() - 5 * 60 * 1000) {
       return NextResponse.json({ success: false, message: "Cannot book a slot in the past." }, { status: 400 });
     }
 

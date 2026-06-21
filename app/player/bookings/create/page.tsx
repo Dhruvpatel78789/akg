@@ -6,6 +6,8 @@ import { ArrowLeft, Home, Calendar, Clock, Users } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useMemo, Suspense } from "react";
+import { parseIST } from "@/lib/time";
+
 
 type Game = {
   _id: string;
@@ -51,11 +53,10 @@ function BookSessionForm() {
 
   const isPastTime = useMemo(() => {
     if (!date || !startTime) return false;
-    const [year, month, day] = date.split("-").map(Number);
-    const [hours, minutes] = startTime.split(":").map(Number);
-    const bookingStart = new Date(year, month - 1, day, hours, minutes, 0, 0);
-    return bookingStart.getTime() < currentTime.getTime() - 3 * 60 * 1000;
+    const bookingStart = parseIST(date, startTime);
+    return bookingStart.getTime() < currentTime.getTime() - 5 * 60 * 1000;
   }, [date, startTime, currentTime]);
+
 
   const selectedGame = useMemo(() => {
     return games.find((g) => g._id === selectedGameId) || null;

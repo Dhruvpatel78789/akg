@@ -10,11 +10,12 @@ import { Booking } from "@/models/Booking";
 import { SessionEntry } from "@/models/SessionEntry";
 import mongoose from "mongoose";
 
-function parseDateTime(dateStr: string, timeStr: string) {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const [hours, minutes] = timeStr.split(":").map(Number);
-  return new Date(year, month - 1, day, hours, minutes, 0, 0);
+import { parseIST } from "@/lib/time";
+
+function parseDateTime(dateStr: string, timeStr: string, addDays: number = 0) {
+  return parseIST(dateStr, timeStr, addDays);
 }
+
 
 export async function POST(request: Request) {
   await connectDB();
@@ -62,10 +63,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Game not found" }, { status: 404 });
     }
 
-    const bookingStart = parseDateTime(date, startTime);
-    const bookingEnd = parseDateTime(date, endTime);
+    const [sh, sm] = startTime.split(":").map(Number);
+    const [eh, em] = endTime.split(":").map(Number);
+    const crossMidnight = (eh * 60 + em) < (sh * 60 + sm);
 
-    if (bookingStart.getTime() < Date.now() - 3 * 60 * 1000) {
+    const bookingStart = parseDateTime(date, startTime);
+    const bookingEnd = parseDateTime(date, endTime, crossMidnight ? 1 : 0);
+
+
+    if (bookingStart.getTime() < Date.now() - 5 * 60 * 1000) {
       return NextResponse.json({ message: "Cannot book a slot in the past. Please select a future date and time." }, { status: 400 });
     }
 
@@ -132,6 +138,8 @@ export async function POST(request: Request) {
     // Create the main Booking record
     const booking = new Booking({
       userId: employee._id, // Use employee _id
+      companyId: company._id,
+      companyEmployeeId: employee._id,
       gameId: game._id,
       gameName: game.name,
       court: assignedCourtName,
@@ -139,12 +147,14 @@ export async function POST(request: Request) {
       endTime: bookingEnd,
       status: "BOOKED",
       playersCount: 1 + coEmployees.length,
-      playerType: "MEMBER",
+      playerType: "COMPANY",
       paymentMode: "online",
       paymentStatus: "PAID",
       price: 0,
       coinCost: 0,
+      crossMidnight,
     });
+
 
     await booking.save();
 

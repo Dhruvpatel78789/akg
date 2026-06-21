@@ -57,7 +57,7 @@ export async function POST(request: Request) {
     const start = parseDateTime(date, startTime);
     const end = parseDateTime(date, endTime, crossMidnight ? 1 : 0);
 
-    if (start.getTime() < Date.now() - 3 * 60 * 1000) {
+    if (start.getTime() < Date.now() - 5 * 60 * 1000) {
       return NextResponse.json({
         available: false,
         message: "Cannot check/book a slot in the past.",

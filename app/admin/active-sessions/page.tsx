@@ -2,24 +2,20 @@
 
 import { useEffect, useState } from "react";
 import { Clock, Play, AlertCircle, ShieldAlert, RefreshCw } from "lucide-react";
+import { formatToISTDate, formatToISTTime } from "@/lib/time";
 
 function formatTime24(value?: string | Date) {
-  if (!value) return "00:00";
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return "-";
-  const h = String(d.getHours()).padStart(2, '0');
-  const m = String(d.getMinutes()).padStart(2, '0');
-  return `${h}:${m}`;
+  return formatToISTTime(value);
 }
 
 function getEndSuffix(startTime?: string | Date, endTime?: string | Date) {
   if (!startTime || !endTime) return "";
-  const s = new Date(startTime);
-  const e = new Date(endTime);
-  if (isNaN(s.getTime()) || isNaN(e.getTime())) return "";
-  const startDay = new Date(s.getFullYear(), s.getMonth(), s.getDate());
-  const endDay = new Date(e.getFullYear(), e.getMonth(), e.getDate());
-  const diffDays = Math.round((endDay.getTime() - startDay.getTime()) / (24 * 3600 * 1000));
+  const sDateStr = formatToISTDate(startTime);
+  const eDateStr = formatToISTDate(endTime);
+  if (!sDateStr || !eDateStr) return "";
+  const s = new Date(sDateStr + "T00:00:00Z");
+  const e = new Date(eDateStr + "T00:00:00Z");
+  const diffDays = Math.round((e.getTime() - s.getTime()) / (24 * 3600 * 1000));
   if (diffDays > 0) {
     return ` (+${diffDays} day${diffDays > 1 ? 's' : ''})`;
   }

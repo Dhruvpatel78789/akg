@@ -12,21 +12,15 @@ import { Transaction } from "@/models/Transaction";
 import { PaymentOrder } from "@/models/PaymentOrder";
 import mongoose from "mongoose";
 
+import { parseIST } from "@/lib/time";
+
 function parseDateTime(dateStr: string, timeStr: string, addDays: number = 0) {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const [hours, minutes] = timeStr.split(":").map(Number);
-  const date = new Date(year, month - 1, day, hours, minutes, 0, 0);
-  if (addDays > 0) {
-    date.setDate(date.getDate() + addDays);
-  }
-  return date;
+  return parseIST(dateStr, timeStr, addDays);
 }
 
 function getDayBounds(dateStr: string) {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const start = new Date(year, month - 1, day, 0, 0, 0, 0);
-  const end = new Date(year, month - 1, day, 23, 59, 59, 999);
-  // Extend end parameter by 1 day to catch cross-midnight check bounds
+  const start = parseIST(dateStr, "00:00");
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
   const endExtended = new Date(end.getTime() + 24 * 60 * 60 * 1000);
   return { start, end, endExtended };
 }
@@ -214,7 +208,7 @@ export async function GET(request: Request) {
       const start = parseDateTime(date, startTime);
       const end = parseDateTime(date, endTime, crossMidnight ? 1 : 0);
 
-      if (start.getTime() < Date.now() - 3 * 60 * 1000) {
+      if (start.getTime() < Date.now() - 5 * 60 * 1000) {
         return NextResponse.json({
           success: true,
           available: false,
@@ -364,7 +358,7 @@ export async function POST(request: Request) {
     const start = parseDateTime(date, startTime);
     const end = parseDateTime(date, endTime, crossMidnight ? 1 : 0);
 
-    if (start.getTime() < Date.now() - 3 * 60 * 1000) {
+    if (start.getTime() < Date.now() - 5 * 60 * 1000) {
       return NextResponse.json({ message: "Cannot book a slot in the past. Please select a future date and time." }, { status: 400 });
     }
 

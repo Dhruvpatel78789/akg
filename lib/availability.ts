@@ -5,14 +5,10 @@ import { Game } from "@/models/Game";
 import { PricingRule } from "@/models/PricingRule";
 import mongoose from "mongoose";
 
+import { parseIST } from "@/lib/time";
+
 export function parseDateTime(dateStr: string, timeStr: string, addDays: number = 0) {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const [hours, minutes] = timeStr.split(":").map(Number);
-  const date = new Date(year, month - 1, day, hours, minutes, 0, 0);
-  if (addDays > 0) {
-    date.setDate(date.getDate() + addDays);
-  }
-  return date;
+  return parseIST(dateStr, timeStr, addDays);
 }
 
 export function calculateBasePrice(rule: any, playersIncluded: number) {
