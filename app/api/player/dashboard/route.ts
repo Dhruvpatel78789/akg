@@ -104,11 +104,7 @@ export async function GET() {
 
   const membershipDaysLeft = getMembershipDaysLeft(activeFixed);
 
-  const activeSession = await Booking.findOne({
-    userId: user._id,
-    status: "STARTED",
-    softDeleted: false,
-  }).populate("gameId").lean();
+
 
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
@@ -182,29 +178,52 @@ export async function GET() {
     .limit(20)
     .lean();
 
-  const totalCompletedPlaySeconds = playHistory.reduce((total, booking) => {
-    if (!booking.startTime || !booking.exitedTime) return total;
+  // Calculate total completed seconds across ALL past completed sessions (not limited to top 20)
+  const allCompletedBookings = await Booking.find({
+    userId: user._id,
+    status: "COMPLETED",
+    softDeleted: false,
+  }).select("startTime exitedTime").lean();
 
+  const totalCompletedPlaySeconds = allCompletedBookings.reduce((total, booking) => {
+    if (!booking.startTime || !booking.exitedTime) return total;
     const start = new Date(booking.startTime).getTime();
     const end = new Date(booking.exitedTime).getTime();
-
     if (Number.isNaN(start) || Number.isNaN(end) || end <= start) {
       return total;
     }
-
     return total + Math.floor((end - start) / 1000);
   }, 0);
 
-  const activeSessionSeconds = activeSession?.startTime
-    ? Math.max(
-        0,
-        Math.floor(
-          (now.getTime() - new Date(activeSession.startTime).getTime()) / 1000
-        )
-      )
-    : 0;
+  // Support multiple active sessions
+  const activeSessions = await Booking.find({
+    userId: user._id,
+    status: "STARTED",
+    softDeleted: false,
+  }).populate("gameId").sort({ startTime: 1 }).lean();
 
-  const totalPlaySeconds = totalCompletedPlaySeconds + activeSessionSeconds;
+  // Pick first active session for backwards compatibility/timers if needed
+  const activeSession = activeSessions[0] || null;
+
+  const activeSessionsSeconds = activeSessions.map(session => {
+    return session.startTime
+      ? Math.max(0, Math.floor((now.getTime() - new Date(session.startTime).getTime()) / 1000))
+      : 0;
+  });
+
+  const activeSessionSeconds = activeSessionsSeconds[0] || 0;
+  const totalActiveSeconds = activeSessionsSeconds.reduce((a, b) => a + b, 0);
+  const totalPlaySeconds = totalCompletedPlaySeconds + totalActiveSeconds;
+
+  // Calculate coins used today: bookings on selected/current date that utilized coin balances
+  const todayCoinsBookings = await Booking.find({
+    userId: user._id,
+    startTime: { $gte: todayStart, $lte: todayEnd },
+    softDeleted: false,
+    status: { $in: ["BOOKED", "STARTED", "COMPLETED"] },
+  }).select("coinCost").lean();
+
+  const todayCoinsUsed = todayCoinsBookings.reduce((sum, b) => sum + (b.coinCost || 0), 0);
 
   return NextResponse.json({
     user,
@@ -212,6 +231,7 @@ export async function GET() {
     activeCoins,
     membershipDaysLeft,
     activeSession,
+    activeSessions,
     todayUpcomingSessions,
     calendarSessions,
     playHistory,
@@ -221,5 +241,6 @@ export async function GET() {
     serverTime: now,
     pendingRescheduleRequestCount,
     pendingCancellationRequestCount,
+    todayCoinsUsed,
   });
 }

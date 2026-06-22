@@ -79,6 +79,7 @@ type DashboardData = {
   activeCoins: Membership | null;
   membershipDaysLeft: number;
   activeSession: Booking | null;
+  activeSessions?: Booking[];
   todayUpcomingSessions: Booking[];
   calendarSessions: Booking[];
   playHistory: Booking[];
@@ -87,6 +88,7 @@ type DashboardData = {
   serverTime?: string;
   pendingRescheduleRequestCount?: number;
   pendingCancellationRequestCount?: number;
+  todayCoinsUsed?: number;
 };
 
 type CalendarDay = {
@@ -549,15 +551,34 @@ export default function PlayerDashboardPage() {
     return () => clearInterval(timer);
   }, [promotions]);
 
+  const [localActiveSeconds, setLocalActiveSeconds] = useState<number[]>([]);
+
+  // Synchronize local active seconds timers when data updates
   useEffect(() => {
-    if (!data?.activeSession) return;
+    if (data?.activeSessions) {
+      const now = new Date();
+      setLocalActiveSeconds(
+        data.activeSessions.map((session: any) => {
+          return session.startTime
+            ? Math.max(0, Math.floor((now.getTime() - new Date(session.startTime).getTime()) / 1000))
+            : 0;
+        })
+      );
+    } else {
+      setLocalActiveSeconds([]);
+    }
+  }, [data?.activeSessions]);
+
+  // Live timer tick for all active sessions
+  useEffect(() => {
+    if (!data?.activeSessions || data.activeSessions.length === 0) return;
 
     const timer = setInterval(() => {
-      setLocalCurrentSeconds((prev) => prev + 1);
+      setLocalActiveSeconds((prev) => prev.map((s) => s + 1));
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [data?.activeSession]);
+  }, [data?.activeSessions]);
 
   const calendar = useMemo(
     () => getCalendar(data?.calendarSessions ?? []),
@@ -639,8 +660,15 @@ export default function PlayerDashboardPage() {
     return null;
   }
 
+  const liveActiveTotalSeconds = localActiveSeconds.reduce((a, b) => a + b, 0);
+  const serverActiveSeconds = (data.activeSessions || []).map((session: any) => {
+    return session.startTime
+      ? Math.max(0, Math.floor((new Date(data.serverTime || new Date()).getTime() - new Date(session.startTime).getTime()) / 1000))
+      : 0;
+  }).reduce((a: number, b: number) => a + b, 0);
+
   const totalTime = formatSeconds(
-    data.totalPlaySeconds - data.currentPlaySeconds + localCurrentSeconds
+    data.totalPlaySeconds - serverActiveSeconds + liveActiveTotalSeconds
   );
 
   const currentTime = formatSeconds(localCurrentSeconds);
@@ -1059,92 +1087,96 @@ export default function PlayerDashboardPage() {
         </section>
 
         {/* Active Session Display (If Available) */}
-        {data.activeSession && (
-          <section className="mt-7 rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-black/5 text-[var(--primary)] space-y-4">
-            <div className="flex justify-between items-start">
-              <div>
-                <span className="text-[10px] font-black uppercase tracking-[0.25em] text-[var(--text-muted)]">
-                  Active Session
-                </span>
-                <h2 className="mt-1 text-2xl font-black text-[var(--primary)]">
-                  {data.activeSession.gameName}
-                </h2>
-                <p className="text-sm font-bold text-gray-500">{data.activeSession.court || "Court not assigned"}</p>
-              </div>
-              {(() => {
-                const derivedStatus = getBookingDisplayStatus(data.activeSession);
-                const badgeStyle = 
-                  derivedStatus === "Booked" || derivedStatus === "Confirmed" || derivedStatus === "Completed"
-                    ? "bg-emerald-50 text-emerald-800 border-emerald-100"
-                    : derivedStatus === "Started"
-                    ? "bg-yellow-50 text-yellow-800 border-yellow-100"
-                    : derivedStatus === "Pending Payment"
-                    ? "bg-amber-50 text-amber-805 border-amber-100 animate-pulse"
-                    : "bg-rose-50 text-rose-800 border-rose-100";
-                return (
-                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border ${badgeStyle}`}>
-                    {derivedStatus}
-                  </span>
-                );
-              })()}
-            </div>
+        {data.activeSessions && data.activeSessions.length > 0 && (
+          <section className="mt-7 space-y-6">
+            {data.activeSessions.map((session: any, sIdx: number) => {
+              const localSecs = localActiveSeconds[sIdx] || 0;
+              const formattedLocal = formatSeconds(localSecs);
+              const derivedStatus = getBookingDisplayStatus(session);
+              const badgeStyle = 
+                derivedStatus === "Booked" || derivedStatus === "Confirmed" || derivedStatus === "Completed"
+                  ? "bg-emerald-50 text-emerald-800 border-emerald-100"
+                  : derivedStatus === "Started"
+                  ? "bg-yellow-50 text-yellow-800 border-yellow-100"
+                  : derivedStatus === "Pending Payment"
+                  ? "bg-amber-50 text-amber-805 border-amber-100 animate-pulse"
+                  : "bg-rose-50 text-rose-800 border-rose-100";
 
-            <div className="grid grid-cols-2 gap-4 border-t pt-4 border-gray-100 text-xs font-bold text-gray-700">
-              <div>
-                <span className="text-[10px] uppercase text-gray-400 font-black">Started</span>
-                <p className="text-sm text-[var(--primary)] font-black">
-                  {data.activeSession.startTime ? formatTime(data.activeSession.startTime) : "-"}
-                </p>
-              </div>
+              return (
+                <div key={session._id} className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-black/5 text-[var(--primary)] space-y-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-[0.25em] text-[var(--text-muted)]">
+                        Active Session {(data.activeSessions || []).length > 1 ? `#${sIdx + 1}` : ""}
+                      </span>
+                      <h2 className="mt-1 text-2xl font-black text-[var(--primary)]">
+                        {session.gameName}
+                      </h2>
+                      <p className="text-sm font-bold text-gray-500">{session.court || "Court not assigned"}</p>
+                    </div>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border ${badgeStyle}`}>
+                      {derivedStatus}
+                    </span>
+                  </div>
 
-              <div>
-                <span className="text-[10px] uppercase text-gray-400 font-black">Scheduled End</span>
-                <p className="text-sm text-[var(--primary)] font-black">
-                  {data.activeSession.endTime ? formatTime(data.activeSession.endTime) : "-"}{getEndSuffix(data.activeSession.startTime, data.activeSession.endTime)}
-                </p>
-              </div>
+                  <div className="grid grid-cols-2 gap-4 border-t pt-4 border-gray-100 text-xs font-bold text-gray-700">
+                    <div>
+                      <span className="text-[10px] uppercase text-gray-400 font-black">Started</span>
+                      <p className="text-sm text-[var(--primary)] font-black">
+                        {session.startTime ? formatTime(session.startTime) : "-"}
+                      </p>
+                    </div>
 
-              <div>
-                <span className="text-[10px] uppercase text-gray-400 font-black">Buffer Time</span>
-                <p className="text-sm text-[var(--primary)] font-black">
-                  {data.activeSession.gameId?.bufferMinutes ?? 5} Minutes
-                </p>
-              </div>
+                    <div>
+                      <span className="text-[10px] uppercase text-gray-400 font-black">Scheduled End</span>
+                      <p className="text-sm text-[var(--primary)] font-black">
+                        {session.endTime ? formatTime(session.endTime) : "-"}{getEndSuffix(session.startTime, session.endTime)}
+                      </p>
+                    </div>
 
-              <div>
-                <span className="text-[10px] uppercase text-gray-400 font-black">Current Duration</span>
-                <p className="text-sm text-emerald-600 font-black">
-                  {currentTime.hours === "00" ? "" : `${currentTime.hours}h `}{currentTime.minutes} Minutes
-                </p>
-              </div>
-            </div>
+                    <div>
+                      <span className="text-[10px] uppercase text-gray-400 font-black">Buffer Time</span>
+                      <p className="text-sm text-[var(--primary)] font-black">
+                        {session.gameId?.bufferMinutes ?? 5} Minutes
+                      </p>
+                    </div>
 
-            <div className="border-t pt-4 border-gray-100 bg-gray-50 -mx-6 -mb-6 p-6 rounded-b-[2rem] text-center space-y-3">
-              <p className="text-xs text-gray-500 font-extrabold leading-normal">
-                To end this session, scan the Exit QR Code.
-              </p>
-              <button
-                onClick={() => {
-                  setScanMessage("");
-                  setManualTokenInput("");
-                  setShowQrScanModal(true);
-                  // Request camera permission & start stream if possible
-                  if (typeof navigator !== "undefined" && navigator.mediaDevices) {
-                    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-                      .then((stream) => {
-                        setCameraStream(stream);
-                        setCameraActive(true);
-                      })
-                      .catch(() => {
-                        setCameraActive(false);
-                      });
-                  }
-                }}
-                className="mx-auto h-14 px-8 bg-red-600 hover:bg-red-700 text-white rounded-full font-black text-sm tracking-wider transition flex items-center justify-center gap-3 active:scale-98 shadow-lg shadow-red-600/30 animate-[pulse_2s_infinite]"
-              >
-                <span>📷 Scan QR To End Session</span>
-              </button>
-            </div>
+                    <div>
+                      <span className="text-[10px] uppercase text-gray-400 font-black">Current Duration</span>
+                      <p className="text-sm text-emerald-600 font-black">
+                        {formattedLocal.hours === "00" ? "" : `${formattedLocal.hours}h `}{formattedLocal.minutes} Minutes
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="border-t pt-4 border-gray-100 bg-gray-50 -mx-6 -mb-6 p-6 rounded-b-[2rem] text-center space-y-3">
+                    <p className="text-xs text-gray-500 font-extrabold leading-normal">
+                      To end this session, scan the Exit QR Code.
+                    </p>
+                    <button
+                      onClick={() => {
+                        setScanMessage("");
+                        setManualTokenInput("");
+                        setShowQrScanModal(true);
+                        if (typeof navigator !== "undefined" && navigator.mediaDevices) {
+                          navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+                            .then((stream) => {
+                              setCameraStream(stream);
+                              setCameraActive(true);
+                            })
+                            .catch(() => {
+                              setCameraActive(false);
+                            });
+                        }
+                      }}
+                      className="mx-auto h-14 px-8 bg-red-600 hover:bg-red-700 text-white rounded-full font-black text-sm tracking-wider transition flex items-center justify-center gap-3 active:scale-98 shadow-lg shadow-red-600/30 animate-[pulse_2s_infinite]"
+                    >
+                      <span>📷 Scan QR To End Session</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </section>
         )}
 
@@ -1461,16 +1493,7 @@ export default function PlayerDashboardPage() {
                   
                   const remainingCoins = data.user.coinsAvailable || 0;
                   const frozenCoins = data.user.coinsFrozen || 0;
-
-                  // Calculate coins spent today
-                  const todayKey = toDateKey(new Date());
-                  const coinsSpentToday = (data.calendarSessions || [])
-                    .filter(session => {
-                      if (!session.startTime || !session.coinCost || session.status === "CANCELLED") return false;
-                      return toDateKey(new Date(session.startTime)) === todayKey;
-                    })
-                    .reduce((sum, session) => sum + (session.coinCost || 0), 0);
-
+                  const coinsSpentToday = data.todayCoinsUsed || 0;
                   const limit = data.user.dailyCoinSpendLimit || 0;
                   const availableToday = Math.max(0, limit - coinsSpentToday);
 

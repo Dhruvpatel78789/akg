@@ -105,7 +105,7 @@ export async function processOvertimeAndExit(
       }
     }
   } else {
-    // 2. Non-company users AdditionalCharge
+    // 2. Non-company users AdditionalCharge (Auto deduct coins if booking utilized coins)
     if (additionalUnits > 0) {
       // Find PricingRule for minimum unit
       const count = booking.playersCount || 1;
@@ -132,24 +132,70 @@ export async function processOvertimeAndExit(
       const additionalAmount = priceForMinimumDuration * additionalUnits;
 
       if (additionalAmount > 0) {
-        // Create AdditionalCharge
-        await AdditionalCharge.create({
-          userId: booking.userId,
-          bookingId: booking._id,
-          amount: additionalAmount,
-          additionalUnits,
-          reason: `OVERTIME: played ${actualDuration} minutes (booked ${bookedDuration} minutes) for ${count} player(s). Extra: ${additionalUnits} unit(s) based on rule calculation.`,
-          status: "PENDING",
-          gatewayPaymentStatus: "PENDING",
-          adminPaymentStatus: "PENDING",
-          effectivePaymentStatus: "PENDING",
-        });
+        // Retrieve booking user
+        const { User } = await import("@/models/User");
+        const { Transaction } = await import("@/models/Transaction");
+        const userObj = await User.findById(booking.userId);
 
-        await Notification.create({
-          userId: booking.userId,
-          title: "Session Overtime Charge",
-          message: `Your session for ${booking.gameName} has been completed. An overtime charge of ₹${additionalAmount} has been registered for the extra playtime.`,
-        });
+        // Check if coin user (booking was made using coins or user has active coin balances)
+        const isCoinBooking = booking.coinCost && booking.coinCost > 0;
+        const hasCoinsAvailable = userObj && userObj.coinsAvailable !== undefined && userObj.coinsAvailable >= additionalAmount;
+
+        if (isCoinBooking && userObj && hasCoinsAvailable) {
+          // Auto-deduct coins directly
+          userObj.coinsAvailable = (userObj.coinsAvailable || 0) - additionalAmount;
+          userObj.coins = userObj.coinsAvailable;
+          await userObj.save();
+
+          // Create auto-settled additional charge
+          await AdditionalCharge.create({
+            userId: booking.userId,
+            bookingId: booking._id,
+            amount: additionalAmount,
+            additionalUnits,
+            reason: `OVERTIME (COIN DEDUCTION): played ${actualDuration} minutes (booked ${bookedDuration} minutes) for ${count} player(s). Extra: ${additionalUnits} unit(s).`,
+            status: "PAID",
+            gatewayPaymentStatus: "PAID",
+            adminPaymentStatus: "PAID",
+            effectivePaymentStatus: "PAID",
+          });
+
+          // Log transaction
+          await Transaction.create({
+            userId: booking.userId,
+            type: "SESSION_DEDUCTION",
+            amount: 0,
+            coins: additionalAmount,
+            note: `Auto-charged overtime for ${booking.gameName} (Booking ID: ${booking._id})`,
+            paymentMode: "coins",
+            paymentStatus: "PAID",
+          });
+
+          await Notification.create({
+            userId: booking.userId,
+            title: "Overtime Charged",
+            message: `Your session for ${booking.gameName} exceeded scheduled limit. ${additionalAmount} coins have been auto-deducted for ${additionalUnits} overtime unit(s).`,
+          });
+        } else {
+          // Standard cash/pending charge creation (for cash players, or if coin user has insufficient coins)
+          await AdditionalCharge.create({
+            userId: booking.userId,
+            bookingId: booking._id,
+            amount: additionalAmount,
+            additionalUnits,
+            reason: `OVERTIME: played ${actualDuration} minutes (booked ${bookedDuration} minutes) for ${count} player(s). Extra: ${additionalUnits} unit(s) based on rule calculation.`,
+            status: "PENDING",
+            gatewayPaymentStatus: "PENDING",
+            adminPaymentStatus: "PENDING",
+            effectivePaymentStatus: "PENDING",
+          });
+
+          await Notification.create({
+            userId: booking.userId,
+            title: "Session Overtime Charge",
+            message: `Your session for ${booking.gameName} has been completed. An overtime charge of ₹${additionalAmount} has been registered for the extra playtime.`,
+          });
+        }
       }
     }
   }
