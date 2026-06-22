@@ -278,16 +278,16 @@ function QrExitForm() {
             </p>
             <div className="flex gap-3">
               <button
-                onClick={() => handleCheckout(true)}
-                className="flex-1 h-12 bg-red-650 text-white font-black text-xs rounded-xl hover:opacity-90 transition active:scale-95"
-              >
-                Confirm
-              </button>
-              <button
                 onClick={() => setShowConfirmModal(false)}
-                className="flex-1 h-12 bg-gray-100 text-gray-700 font-black text-xs rounded-xl hover:bg-gray-200 transition active:scale-95"
+                className="flex-1 h-12 bg-gray-150 text-gray-800 font-black text-xs rounded-xl hover:bg-gray-200 transition active:scale-95"
               >
                 Cancel
+              </button>
+              <button
+                onClick={() => handleCheckout(true)}
+                className="flex-1 h-12 bg-red-600 text-white font-black text-xs rounded-xl hover:bg-red-700 transition active:scale-95"
+              >
+                Confirm
               </button>
             </div>
           </div>

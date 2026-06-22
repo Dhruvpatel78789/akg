@@ -433,6 +433,9 @@ export async function POST(request: Request) {
         playersCount: count,
         crossMidnight,
         status: "BOOKED",
+        paymentStatus: "PAID",
+        adminPaymentStatus: "WAIVED",
+        paymentMode: "coins",
       });
 
       return NextResponse.json({ success: true, message: "Booking created under membership", booking });
@@ -569,6 +572,9 @@ export async function POST(request: Request) {
       playersCount: count,
       crossMidnight,
       status: "BOOKED",
+      paymentStatus: "PAID",
+      adminPaymentStatus: "PAID",
+      paymentMode: "coins",
     });
 
     await Transaction.create({
@@ -577,6 +583,8 @@ export async function POST(request: Request) {
       amount: 0,
       coins: bookingCost,
       note: `Booked session for ${game.name} on court ${avail.courtName}`,
+      paymentMode: "coins",
+      paymentStatus: "PAID",
     });
 
     return NextResponse.json({ success: true, message: "Booking created successfully", booking });

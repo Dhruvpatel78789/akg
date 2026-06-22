@@ -410,9 +410,9 @@ export default function AdminPromotionsPage() {
 
       {/* TAB 1: Ads & Promos */}
       {activeTab === "Ads & Promos" && (
-        <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="space-y-6">
-            <form onSubmit={createPromotion} className="bg-white p-6 rounded-2xl ring-1 ring-black/5 space-y-4 text-left">
+        <div className="mt-8 grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
+          <div className="xl:col-span-5 space-y-6">
+            <form onSubmit={createPromotion} className="bg-white p-6 rounded-2xl ring-1 ring-black/5 space-y-5 text-left">
               <h3 className="text-lg font-black text-[var(--primary)] border-b pb-2 flex items-center justify-between">
                 <span className="flex items-center gap-2">
                   <Plus size={16} /> {editingId ? "Edit Promotion" : "Add Promotion"}
@@ -786,10 +786,10 @@ export default function AdminPromotionsPage() {
             </div>
           </div>
 
-          <div className="lg:col-span-2 bg-white p-6 rounded-2xl ring-1 ring-black/5 text-left">
+          <div className="xl:col-span-7 bg-white p-6 rounded-2xl ring-1 ring-black/5 text-left">
             <h3 className="text-lg font-black text-[var(--primary)] border-b pb-3 mb-4">Current Active Ads & Offers</h3>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-xs min-w-[600px]">
                 <thead>
                   <tr className="border-b text-gray-400 font-bold uppercase">
                     <th className="py-2">Promo Details</th>
@@ -886,8 +886,8 @@ export default function AdminPromotionsPage() {
 
       {/* TAB 2: Discount Coupons */}
       {activeTab === "Discount Coupons" && (
-        <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <form onSubmit={createCoupon} className="bg-white p-6 rounded-2xl ring-1 ring-black/5 space-y-4">
+        <div className="mt-8 grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
+          <form onSubmit={createCoupon} className="xl:col-span-5 bg-white p-6 rounded-2xl ring-1 ring-black/5 space-y-4">
             <h3 className="text-lg font-black text-[var(--primary)] border-b pb-2 flex items-center gap-2">
               <Tag size={16} /> Create Coupon Code
             </h3>
@@ -982,10 +982,10 @@ export default function AdminPromotionsPage() {
             </button>
           </form>
 
-          <div className="lg:col-span-2 bg-white p-6 rounded-2xl ring-1 ring-black/5">
+          <div className="xl:col-span-7 bg-white p-6 rounded-2xl ring-1 ring-black/5">
             <h3 className="text-lg font-black text-[var(--primary)] border-b pb-3 mb-4">Active Coupon Codes</h3>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-xs min-w-[550px]">
                 <thead>
                   <tr className="border-b text-gray-400 font-bold uppercase">
                     <th className="py-2">Code</th>
@@ -1023,8 +1023,8 @@ export default function AdminPromotionsPage() {
 
       {/* TAB 3: Auto-Offers */}
       {activeTab === "Auto-Offers" && (
-        <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <form onSubmit={createOffer} className="bg-white p-6 rounded-2xl ring-1 ring-black/5 space-y-4">
+        <div className="mt-8 grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
+          <form onSubmit={createOffer} className="xl:col-span-5 bg-white p-6 rounded-2xl ring-1 ring-black/5 space-y-4">
             <h3 className="text-lg font-black text-[var(--primary)] border-b pb-2 flex items-center gap-2">
               <Percent size={16} /> Set Automatic Offer
             </h3>
@@ -1122,10 +1122,10 @@ export default function AdminPromotionsPage() {
             </button>
           </form>
 
-          <div className="lg:col-span-2 bg-white p-6 rounded-2xl ring-1 ring-black/5">
+          <div className="xl:col-span-7 bg-white p-6 rounded-2xl ring-1 ring-black/5">
             <h3 className="text-lg font-black text-[var(--primary)] border-b pb-3 mb-4">Active Happy Hour / Auto-Offers</h3>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-xs min-w-[550px]">
                 <thead>
                   <tr className="border-b text-gray-400 font-bold uppercase">
                     <th className="py-2">Offer Name</th>
