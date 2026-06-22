@@ -1569,7 +1569,7 @@ export default function PlayerDashboardPage() {
                             if (!scanActive || el.paused || el.ended) return;
                             if (el.videoWidth > 0 && el.videoHeight > 0 && ctx) {
                               canvas.width = el.videoWidth;
-                              canvas.height = el.videoHeight;
+                  canvas.height = el.videoHeight;
                               ctx.drawImage(el, 0, 0, canvas.width, canvas.height);
                               const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                               const code = jsQR(imgData.data, imgData.width, imgData.height, {
@@ -1578,11 +1578,45 @@ export default function PlayerDashboardPage() {
 
                               if (code && code.data) {
                                 scanActive = false;
+                                // Extract token if scanned data is a full URL
+                                let cleanToken = code.data.trim();
+                                if (cleanToken.includes("?token=") || cleanToken.includes("&token=")) {
+                                  try {
+                                    const urlObj = new URL(cleanToken);
+                                    cleanToken = urlObj.searchParams.get("token") || cleanToken;
+                                  } catch (e) {
+                                    // Fallback: manual regex or searchParams parsing if not fully qualified URL
+                                    const match = cleanToken.match(/[?&]token=([^&]+)/);
+                                    if (match) cleanToken = match[1];
+                                  }
+                                }
+
                                 // Handle exit scanner validation with detected token code
                                 try {
-                                  const response = await fetch(`/api/player/qr-exit?token=${encodeURIComponent(code.data.trim())}`);
+                                  const response = await fetch(`/api/player/qr-exit?token=${encodeURIComponent(cleanToken)}`);
                                   const resData = await response.json();
                                   if (response.ok && resData.success) {
+                                    const sessionIds = resData.activeSessions?.map((s: any) => s._id) || [];
+                                    if (sessionIds.length > 0) {
+                                      const postResponse = await fetch("/api/player/qr-exit", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({
+                                          sessionIds,
+                                          token: cleanToken,
+                                        }),
+                                      });
+                                      const postData = await postResponse.json();
+                                      if (!postResponse.ok || !postData.success) {
+                                        setScanMessage(postData.message || "Failed to finalize checkout.");
+                                        scanActive = true;
+                                        return;
+                                      }
+                                    } else {
+                                      setScanMessage("No active session found to end.");
+                                      scanActive = true;
+                                      return;
+                                    }
                                     cameraStream.getTracks().forEach(track => track.stop());
                                     setShowQrScanModal(false);
                                     loadDashboard();
@@ -1654,11 +1688,39 @@ export default function PlayerDashboardPage() {
                       setScanMessage("Please enter a token first.");
                       return;
                     }
+                    let cleanToken = manualTokenInput.trim();
+                    if (cleanToken.includes("?token=") || cleanToken.includes("&token=")) {
+                      try {
+                        const urlObj = new URL(cleanToken);
+                        cleanToken = urlObj.searchParams.get("token") || cleanToken;
+                      } catch (e) {
+                        const match = cleanToken.match(/[?&]token=([^&]+)/);
+                        if (match) cleanToken = match[1];
+                      }
+                    }
                     try {
-                      const response = await fetch(`/api/player/qr-exit?token=${encodeURIComponent(manualTokenInput.trim())}`);
+                      const response = await fetch(`/api/player/qr-exit?token=${encodeURIComponent(cleanToken)}`);
                       const resData = await response.json();
                       if (response.ok && resData.success) {
-                        // Single active session confirm or multiple selection
+                        const sessionIds = resData.activeSessions?.map((s: any) => s._id) || [];
+                        if (sessionIds.length > 0) {
+                          const postResponse = await fetch("/api/player/qr-exit", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              sessionIds,
+                              token: cleanToken,
+                            }),
+                          });
+                          const postData = await postResponse.json();
+                          if (!postResponse.ok || !postData.success) {
+                            setScanMessage(postData.message || "Failed to finalize checkout.");
+                            return;
+                          }
+                        } else {
+                          setScanMessage("No active session found to end.");
+                          return;
+                        }
                          if (cameraStream) {
                            cameraStream.getTracks().forEach(track => track.stop());
                          }

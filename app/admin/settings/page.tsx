@@ -131,7 +131,7 @@ export default function AdminSettingsPage() {
     }
   }
 
-  // Draw a basic high-quality custom QR-like pattern on the canvas for printing
+  // Draw a real high-quality exit QR code on the canvas
   useEffect(() => {
     if (!token || !qrCanvasRef.current) return;
     const canvas = qrCanvasRef.current;
@@ -145,51 +145,14 @@ export default function AdminSettingsPage() {
     ctx.fillStyle = "#FFFFFF";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw visual QR border guidelines
-    ctx.fillStyle = "#03210F"; // Primary color
-    
-    // Top-Left Finder Pattern
-    ctx.fillRect(20, 20, 50, 50);
-    ctx.fillStyle = "#FFFFFF";
-    ctx.fillRect(27, 27, 36, 36);
-    ctx.fillStyle = "#03210F";
-    ctx.fillRect(34, 34, 22, 22);
+    const scanUrl = `${window.location.origin}/player/qr-exit?token=${token}`;
 
-    // Top-Right Finder Pattern
-    ctx.fillRect(180, 20, 50, 50);
-    ctx.fillStyle = "#FFFFFF";
-    ctx.fillRect(187, 27, 36, 36);
-    ctx.fillStyle = "#03210F";
-    ctx.fillRect(194, 34, 22, 22);
-
-    // Bottom-Left Finder Pattern
-    ctx.fillRect(20, 180, 50, 50);
-    ctx.fillStyle = "#FFFFFF";
-    ctx.fillRect(27, 187, 36, 36);
-    ctx.fillStyle = "#03210F";
-    ctx.fillRect(34, 194, 22, 22);
-
-    // Generate random seed dots based on token to make it uniquely visual
-    let seed = 0;
-    for (let i = 0; i < token.length; i++) {
-      seed += token.charCodeAt(i);
-    }
-
-    ctx.fillStyle = "#03210F";
-    // Fill inner grid area with randomized QR-like blocks
-    for (let r = 0; r < 25; r++) {
-      for (let c = 0; c < 25; c++) {
-        // Skip finder areas
-        if (r < 8 && c < 8) continue;
-        if (r < 8 && c > 16) continue;
-        if (r > 16 && c < 8) continue;
-
-        const val = Math.abs(Math.sin(seed + r * 13 + c * 37));
-        if (val > 0.45) {
-          ctx.fillRect(20 + c * 8, 20 + r * 8, 7, 7);
-        }
-      }
-    }
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(scanUrl)}`;
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    };
   }, [token]);
 
   useEffect(() => {

@@ -611,9 +611,19 @@ export default function CompanyDashboardPage() {
 
                               if (code && code.data) {
                                 scanActive = false;
+                                let cleanToken = code.data.trim();
+                                if (cleanToken.includes("?token=") || cleanToken.includes("&token=")) {
+                                  try {
+                                    const urlObj = new URL(cleanToken);
+                                    cleanToken = urlObj.searchParams.get("token") || cleanToken;
+                                  } catch (e) {
+                                    const match = cleanToken.match(/[?&]token=([^&]+)/);
+                                    if (match) cleanToken = match[1];
+                                  }
+                                }
                                 // Handle exit scanner validation with detected token code
                                 try {
-                                  const response = await fetch(`/api/player/qr-exit?token=${encodeURIComponent(code.data.trim())}`);
+                                  const response = await fetch(`/api/player/qr-exit?token=${encodeURIComponent(cleanToken)}`);
                                   const resData = await response.json();
                                   if (response.ok && resData.success) {
                                     cameraStream.getTracks().forEach(track => track.stop());
@@ -679,8 +689,18 @@ export default function CompanyDashboardPage() {
                     <button
                       onClick={async () => {
                         if (!manualTokenInput.trim()) return;
+                        let cleanToken = manualTokenInput.trim();
+                        if (cleanToken.includes("?token=") || cleanToken.includes("&token=")) {
+                          try {
+                            const urlObj = new URL(cleanToken);
+                            cleanToken = urlObj.searchParams.get("token") || cleanToken;
+                          } catch (e) {
+                            const match = cleanToken.match(/[?&]token=([^&]+)/);
+                            if (match) cleanToken = match[1];
+                          }
+                        }
                         try {
-                          const response = await fetch(`/api/player/qr-exit?token=${encodeURIComponent(manualTokenInput.trim())}`);
+                          const response = await fetch(`/api/player/qr-exit?token=${encodeURIComponent(cleanToken)}`);
                           const resData = await response.json();
                           if (response.ok && resData.success) {
                             if (cameraStream) {
