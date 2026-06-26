@@ -48,7 +48,7 @@ export default function CompanyChangePasswordPage() {
 
       setSuccess(true);
       setTimeout(() => {
-        router.push("/company/dashboard");
+        router.replace("/company/dashboard");
       }, 2000);
     } catch (err) {
       setLoading(false);

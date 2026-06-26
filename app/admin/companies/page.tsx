@@ -50,16 +50,31 @@ type Employee = {
   mustChangePassword?: boolean;
 };
 
+function mergeById<T extends { _id: string }>(current: T[], incoming: T[]): T[] {
+  const incomingMap = new Map(incoming.map((item) => [item._id, item]));
+
+  const updated = current
+    .map((item) => incomingMap.get(item._id) || item)
+    .filter((item) => incomingMap.has(item._id));
+
+  const existingIds = new Set(current.map((item) => item._id));
+  const added = incoming.filter((item) => !existingIds.has(item._id));
+
+  return [...added, ...updated];
+}
+
 export default function AdminCompaniesPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [games, setGames] = useState<Game[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
 
   // Tabs
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [empLoading, setEmpLoading] = useState(false);
+  const [empInitialLoading, setEmpInitialLoading] = useState(false);
+  const [empRefreshing, setEmpRefreshing] = useState(false);
 
   // Company Modal form
   const [showCompanyModal, setShowCompanyModal] = useState(false);
@@ -115,13 +130,21 @@ export default function AdminCompaniesPage() {
   } | null>(null);
   const [uploading, setUploading] = useState(false);
 
-  async function loadData() {
-    setLoading(true);
+  async function loadData(isBackground = false) {
+    if (!isBackground) {
+      if (companies.length === 0) setInitialLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     try {
       const resC = await fetch("/api/admin/companies");
       const dataC = await resC.json();
       if (resC.ok && dataC.success) {
-        setCompanies(dataC.companies || []);
+        const incomingC = dataC.companies || [];
+        setCompanies((prev) => {
+          if (prev.length === 0) return incomingC;
+          return mergeById(prev, incomingC);
+        });
       }
 
       const resG = await fetch("/api/games");
@@ -133,33 +156,51 @@ export default function AdminCompaniesPage() {
       console.error(err);
       setMessage("Failed to load companies data.");
     } finally {
-      setLoading(false);
+      setInitialLoading(false);
+      setRefreshing(false);
     }
   }
 
   useEffect(() => {
     loadData();
+    const interval = setInterval(() => {
+      loadData(true);
+    }, 30000);
+    return () => clearInterval(interval);
   }, []);
 
-  async function loadEmployees(companyId: string) {
-    setEmpLoading(true);
+  async function loadEmployees(companyId: string, isBackground = false) {
+    if (!isBackground) {
+      if (employees.length === 0) setEmpInitialLoading(true);
+    } else {
+      setEmpRefreshing(true);
+    }
     setUploadResults(null);
     try {
       const res = await fetch(`/api/admin/companies/${companyId}/employees`);
       const data = await res.json();
       if (res.ok && data.success) {
-        setEmployees(data.employees || []);
+        const incomingE = data.employees || [];
+        setEmployees((prev) => {
+          if (!isBackground || prev.length === 0) return incomingE;
+          return mergeById(prev, incomingE);
+        });
       }
     } catch (err) {
       console.error(err);
     } finally {
-      setEmpLoading(false);
+      setEmpInitialLoading(false);
+      setEmpRefreshing(false);
     }
   }
 
   useEffect(() => {
     if (selectedCompanyId) {
-      loadEmployees(selectedCompanyId);
+      loadEmployees(selectedCompanyId, false);
+      const interval = setInterval(() => {
+        loadEmployees(selectedCompanyId, true);
+      }, 30000);
+      return () => clearInterval(interval);
     } else {
       setEmployees([]);
     }
@@ -512,7 +553,7 @@ export default function AdminCompaniesPage() {
         {/* Left Column: Companies Master List */}
         <div className="lg:col-span-1 space-y-4">
           <h3 className="text-sm font-black text-[var(--text-muted)] uppercase tracking-wider">Partners</h3>
-          {loading ? (
+          {initialLoading ? (
             <p className="text-sm font-bold text-[var(--text-muted)] animate-pulse">Loading companies...</p>
           ) : companies.length === 0 ? (
             <p className="text-sm font-bold text-[var(--text-muted)] bg-white p-4 rounded-2xl ring-1 ring-black/5">No companies configured.</p>
@@ -724,7 +765,7 @@ export default function AdminCompaniesPage() {
                 )}
 
                 {/* Employees Table List */}
-                {empLoading ? (
+                {empInitialLoading ? (
                   <p className="text-sm font-bold text-[var(--text-muted)] animate-pulse">Loading employee roster...</p>
                 ) : employees.length === 0 ? (
                   <p className="text-sm font-bold text-[var(--text-muted)] py-4 text-center">Roster is empty. Drag a CSV template to populate accounts.</p>

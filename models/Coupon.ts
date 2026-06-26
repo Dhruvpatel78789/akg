@@ -11,6 +11,7 @@ const CouponSchema = new Schema(
     active: { type: Boolean, default: true },
     usageLimit: { type: Number, default: 0 }, // 0 = unlimited
     usedCount: { type: Number, default: 0 },
+    applicableOnMembership: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

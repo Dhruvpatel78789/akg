@@ -6,6 +6,11 @@ const NotificationSchema = new Schema(
     title: { type: String, required: true },
     message: { type: String, required: true },
     read: { type: Boolean, default: false, index: true },
+    type: { type: String, default: "GENERAL", index: true },
+    clearable: { type: Boolean, default: true },
+    cleared: { type: Boolean, default: false, index: true },
+    relatedEntityType: { type: String },
+    relatedEntityId: { type: Schema.Types.ObjectId },
   },
   { timestamps: true }
 );

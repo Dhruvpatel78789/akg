@@ -52,14 +52,14 @@ function LoginForm() {
       }
 
       if (redirect) {
-        router.push(redirect);
+        router.replace(redirect);
         return;
       }
 
       if (data?.user?.role === "ADMIN" || data?.user?.hasRoleProfile) {
-        router.push("/admin/dashboard");
+        router.replace("/admin/dashboard");
       } else {
-        router.push("/player/dashboard");
+        router.replace("/player/dashboard");
       }
     } catch (err) {
       setLoading(false);

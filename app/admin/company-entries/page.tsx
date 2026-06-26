@@ -49,12 +49,26 @@ const cardClass =
 const fieldClass =
   "h-12 w-full min-w-0 rounded-2xl border border-black/5 bg-white/75 px-4 font-bold text-[var(--primary)] outline-none shadow-inner focus:ring-1 focus:ring-[var(--primary)]";
 
+function mergeById<T extends { _id: string }>(current: T[], incoming: T[]): T[] {
+  const incomingMap = new Map(incoming.map((item) => [item._id, item]));
+
+  const updated = current
+    .map((item) => incomingMap.get(item._id) || item)
+    .filter((item) => incomingMap.has(item._id));
+
+  const existingIds = new Set(current.map((item) => item._id));
+  const added = incoming.filter((item) => !existingIds.has(item._id));
+
+  return [...added, ...updated];
+}
+
 export default function AdminCompanyEntriesPage() {
   const [entries, setEntries] = useState<SessionEntry[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [games, setGames] = useState<Game[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [groupByGroup, setGroupByGroup] = useState(false);
 
   // Filters
@@ -143,8 +157,12 @@ export default function AdminCompanyEntriesPage() {
     }
   }
 
-  async function loadEntries() {
-    setLoading(true);
+  async function loadEntries(isBackground = false) {
+    if (!isBackground) {
+      if (entries.length === 0) setInitialLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     try {
       const params = new URLSearchParams({
         showDeleted: String(showDeleted),
@@ -158,12 +176,17 @@ export default function AdminCompanyEntriesPage() {
       const res = await fetch(`/api/admin/company-entries?${params.toString()}`);
       const data = await res.json();
       if (res.ok && data.success) {
-        setEntries(data.entries || []);
+        const incoming = data.entries || [];
+        setEntries((prev) => {
+          if (!isBackground || prev.length === 0) return incoming;
+          return mergeById(prev, incoming);
+        });
       }
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      setInitialLoading(false);
+      setRefreshing(false);
     }
   }
 
@@ -172,7 +195,11 @@ export default function AdminCompanyEntriesPage() {
   }, []);
 
   useEffect(() => {
-    loadEntries();
+    loadEntries(false);
+    const interval = setInterval(() => {
+      loadEntries(true);
+    }, 30000);
+    return () => clearInterval(interval);
   }, [filterCompany, filterGame, filterDate, filterPlayer, filterStatus, showDeleted]);
 
   const renderRow = (entry: SessionEntry, isGrouped = false) => {
@@ -675,7 +702,7 @@ export default function AdminCompanyEntriesPage() {
 
       {/* Entries List Table */}
       <section className={cardClass}>
-        {loading ? (
+        {initialLoading ? (
           <p className="text-center font-black py-12 text-gray-500">Loading entries...</p>
         ) : entries.length === 0 ? (
           <p className="text-center font-black py-12 text-gray-500">No session entries found matching filters.</p>

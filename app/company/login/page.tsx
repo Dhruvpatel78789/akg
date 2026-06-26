@@ -42,9 +42,9 @@ function CompanyLoginForm() {
       }
 
       if (data?.user?.mustChangePassword) {
-        router.push("/company/change-password");
+        router.replace("/company/change-password");
       } else {
-        router.push("/company/dashboard");
+        router.replace("/company/dashboard");
       }
     } catch (err) {
       setLoading(false);

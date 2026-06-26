@@ -38,6 +38,7 @@ type Booking = {
     name?: string;
     bufferMinutes?: number;
     duration?: number;
+    fixedSlotBooking?: boolean;
   };
   gameName?: string;
   court?: string;
@@ -291,6 +292,11 @@ export default function PlayerDashboardPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [pendingCharges, setPendingCharges] = useState<any[]>([]);
   const [hasCheckedSession, setHasCheckedSession] = useState(false);
+  
+  // Notifications states
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<"notifications" | "payments">("notifications");
+  const [notifExpanded, setNotifExpanded] = useState(false);
 
   // Expanded play history records trackers
   const [expandedHistoryIds, setExpandedHistoryIds] = useState<string[]>([]);
@@ -351,9 +357,47 @@ export default function PlayerDashboardPage() {
     setCancelValidationError("");
   }, [cancelReason, cancellingSession]);
 
+  async function loadNotifications() {
+    try {
+      const res = await fetch("/api/player/notifications");
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setNotifications(data.notifications || []);
+      }
+    } catch (err) {
+      console.error("Failed to load notifications", err);
+    }
+  }
+
+  async function handleClearNotification(id: string) {
+    try {
+      const res = await fetch(`/api/player/notifications/${id}/clear`, {
+        method: "PATCH",
+      });
+      if (res.ok) {
+        loadNotifications();
+      }
+    } catch (err) {
+      console.error("Failed to clear notification", err);
+    }
+  }
+
+  async function handleClearAllNotifications() {
+    try {
+      const res = await fetch(`/api/player/notifications/clear-all`, {
+        method: "PATCH",
+      });
+      if (res.ok) {
+        loadNotifications();
+      }
+    } catch (err) {
+      console.error("Failed to clear all notifications", err);
+    }
+  }
+
   async function loadPendingCharges() {
     try {
-      const res = await fetch("/api/player/additional-charges");
+      const res = await fetch("/api/player/pending-payments");
       const data = await res.json();
       if (res.ok && data.success) {
         setPendingCharges(data.charges || []);
@@ -400,6 +444,7 @@ export default function PlayerDashboardPage() {
         if (verifyRes.ok && verifyData.success) {
           setScanMessage("Payment completed successfully (Mock Gateway)!");
           loadPendingCharges();
+          loadNotifications();
           loadDashboard();
         } else {
           setScanMessage(verifyData.message || "Mock payment verification failed");
@@ -431,6 +476,7 @@ export default function PlayerDashboardPage() {
             if (verifyRes.ok && verifyData.success) {
               setScanMessage("Payment verified successfully!");
               loadPendingCharges();
+              loadNotifications();
               loadDashboard();
             } else {
               setScanMessage("Payment verification failed.");
@@ -464,6 +510,7 @@ export default function PlayerDashboardPage() {
 
   useEffect(() => {
     loadPendingCharges();
+    loadNotifications();
     const script = document.createElement("script");
     script.src = "https://checkout.razorpay.com/v1/checkout.js";
     script.async = true;
@@ -481,7 +528,7 @@ export default function PlayerDashboardPage() {
         return;
       }
       if (response.status === 403) {
-        router.replace("/player/membership");
+        router.replace("/");
         return;
       }
       const result = await response.json();
@@ -730,6 +777,12 @@ export default function PlayerDashboardPage() {
                       Dashboard
                     </Link>
                     <Link
+                      href="/player/profile"
+                      className="block rounded-xl px-4 py-2.5 text-sm font-black text-[var(--primary)] hover:bg-gray-50"
+                    >
+                      Profile
+                    </Link>
+                    <Link
                       href="/player/membership"
                       className="block rounded-xl px-4 py-2.5 text-sm font-black text-[var(--primary)] hover:bg-gray-50"
                     >
@@ -745,7 +798,7 @@ export default function PlayerDashboardPage() {
                       onClick={async () => {
                         const res = await fetch("/api/auth/logout", { method: "POST" });
                         if (res.ok) {
-                          window.location.href = "/auth/login";
+                          window.location.href = "/";
                         }
                       }}
                       className="block w-full rounded-xl px-4 py-2.5 text-left text-sm font-black text-red-500 hover:bg-gray-50"
@@ -772,77 +825,174 @@ export default function PlayerDashboardPage() {
           </div>
         </header>
 
-        {/* Dashboard Notifications */}
-        <section className="mt-6 space-y-3">
-          {pendingCharges.some(c => c.status === "PENDING") && (
-            <div className="bg-rose-50 border border-rose-200 p-4 rounded-2xl flex items-center justify-between shadow-sm">
-              <div className="flex items-center gap-3">
-                <AlertCircle className="text-rose-600 animate-pulse shrink-0" size={20} />
-                <span className="text-xs font-black text-rose-800">You have pending overtime charges.</span>
-              </div>
-              <button
-                onClick={() => {
-                  const pending = pendingCharges.find(c => c.status === "PENDING");
-                  if (pending) handlePayCharge(pending);
-                }}
-                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black transition active:scale-95 shrink-0"
+        {/* Unified Dashboard Notifications & Pending Payments Area */}
+        <section className="mt-6">
+          <div className="bg-white rounded-[2rem] p-5 shadow-sm ring-1 ring-black/5">
+            {/* Collapsed Header View */}
+            {!notifExpanded ? (
+              <div 
+                onClick={() => setNotifExpanded(true)}
+                className="flex items-center justify-between cursor-pointer group"
               >
-                Pay Now
-              </button>
-            </div>
-          )}
-
-          {data.playHistory.some(h => h.autoEnded) && (
-            <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-center gap-3 shadow-sm">
-              <AlertCircle className="text-amber-600 shrink-0" size={20} />
-              <span className="text-xs font-black text-amber-800">One of your sessions was automatically ended.</span>
-            </div>
-          )}
-
-          {data.pendingRescheduleRequestCount && data.pendingRescheduleRequestCount > 0 ? (
-            <div className="bg-blue-50 border border-blue-200 p-4 rounded-2xl flex items-center gap-3 shadow-sm">
-              <Clock3 className="text-blue-600 shrink-0" size={20} />
-              <span className="text-xs font-black text-blue-800">Reschedule Request Pending Approval</span>
-            </div>
-          ) : null}
-
-          {data.pendingCancellationRequestCount && data.pendingCancellationRequestCount > 0 ? (
-            <div className="bg-orange-50 border border-orange-200 p-4 rounded-2xl flex items-center gap-3 shadow-sm">
-              <AlertCircle className="text-orange-650 shrink-0" size={20} />
-              <span className="text-xs font-black text-orange-850">Cancellation Request Pending Approval</span>
-            </div>
-          ) : null}
-        </section>
-
-        {pendingCharges.length > 0 && (
-          <section className="mt-6 rounded-[2rem] bg-rose-50 p-5 shadow-sm ring-1 ring-rose-200 space-y-4">
-            <h2 className="text-xl font-black text-rose-800 flex items-center gap-2">
-              <AlertCircle size={20} className="text-rose-600 animate-pulse" />
-              <span>Pending Payments Details</span>
-            </h2>
-            <div className="grid gap-3">
-              {pendingCharges.map((charge) => (
-                <div key={charge._id} className="bg-white p-4 rounded-2xl flex flex-col justify-between md:flex-row md:items-center gap-3">
-                  <div>
-                    <h3 className="text-sm font-black text-[var(--primary)]">{charge.reason}</h3>
-                    <p className="text-xs text-gray-500 font-bold mt-1">Amount due: ₹{charge.amount}</p>
-                    <p className="text-[10px] text-gray-400 font-semibold uppercase mt-0.5">
-                      Status: {charge.status === "AWAITING_SETTLEMENT" || charge.status === "PAID" ? "Paid" : charge.status === "FAILED" ? "Failed" : "Pending"}
+                <div className="flex items-center gap-3 overflow-hidden">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-[var(--primary)]">
+                    <AlertCircle size={20} className="animate-pulse" />
+                  </span>
+                  <div className="overflow-hidden text-left">
+                    <h3 className="text-sm font-black text-[var(--primary)] group-hover:text-emerald-700 transition">
+                      {notifications.length > 0 ? notifications[0].title : "Notifications & Payments"}
+                    </h3>
+                    <p className="text-xs text-gray-500 font-bold truncate">
+                      {notifications.length > 0 ? notifications[0].message : "No new notifications."}
                     </p>
                   </div>
-                  {charge.status === "PENDING" && (
-                    <button
-                      onClick={() => handlePayCharge(charge)}
-                      className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black transition active:scale-95 cursor-pointer shadow-sm text-center"
-                    >
-                      Pay Now
-                    </button>
-                  )}
                 </div>
-              ))}
-            </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {pendingCharges.length > 0 && (
+                    <span className="bg-rose-100 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded-full shrink-0">
+                      {pendingCharges.length} Pay
+                    </span>
+                  )}
+                  {notifications.length > 1 && (
+                    <span className="bg-gray-100 text-gray-600 text-[10px] font-black px-2 py-0.5 rounded-full shrink-0">
+                      +{notifications.length - 1} more
+                    </span>
+                  )}
+                  <span className="text-xs font-black text-emerald-600 group-hover:underline">View All</span>
+                </div>
+              </div>
+            ) : (
+              // Expanded Tabs View
+              <div>
+                <div className="flex items-center justify-between border-b pb-3 mb-4">
+                  <div className="flex gap-4">
+                    <button
+                      onClick={() => setActiveTab("notifications")}
+                      className={`text-sm font-black pb-1 border-b-2 transition ${
+                        activeTab === "notifications"
+                          ? "border-[var(--primary)] text-[var(--primary)]"
+                          : "border-transparent text-gray-400 hover:text-gray-600"
+                      }`}
+                    >
+                      Notifications ({notifications.length})
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("payments")}
+                      className={`text-sm font-black pb-1 border-b-2 transition ${
+                        activeTab === "payments"
+                          ? "border-[var(--primary)] text-[var(--primary)]"
+                          : "border-transparent text-gray-400 hover:text-gray-600"
+                      }`}
+                    >
+                      Pending Payments ({pendingCharges.length})
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setNotifExpanded(false)}
+                    className="text-xs font-black text-gray-400 hover:text-gray-600"
+                  >
+                    Collapse
+                  </button>
+                </div>
+
+                {activeTab === "notifications" && (
+                  <div className="space-y-3">
+                    {notifications.length > 1 && (
+                      <div className="flex justify-end">
+                        <button
+                          onClick={handleClearAllNotifications}
+                          className="text-[11px] font-black text-rose-600 hover:underline"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                    )}
+                    {notifications.length === 0 ? (
+                      <p className="text-xs text-gray-400 font-bold py-4 text-center">No new notifications.</p>
+                    ) : (
+                      <div className="grid gap-3 max-h-80 overflow-y-auto pr-1">
+                        {notifications.map((notif) => (
+                          <div 
+                            key={notif._id} 
+                            className="bg-gray-50 border border-gray-100 p-3.5 rounded-2xl flex items-start justify-between gap-3 text-left"
+                          >
+                            <div>
+                              <h4 className="text-xs font-black text-[var(--primary)]">{notif.title}</h4>
+                              <p className="text-[11px] text-gray-600 font-medium mt-1">{notif.message}</p>
+                              <span className="text-[9px] text-gray-400 font-bold block mt-1">
+                                {new Date(notif.createdAt).toLocaleString("en-IN", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })}
+                              </span>
+                            </div>
+                            {notif.clearable !== false && (
+                              <button
+                                onClick={() => handleClearNotification(notif._id)}
+                                className="text-[10px] font-black text-gray-400 hover:text-rose-600 transition shrink-0"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === "payments" && (
+                  <div className="space-y-3">
+                    {pendingCharges.length === 0 ? (
+                      <p className="text-xs text-gray-400 font-bold py-4 text-center">No pending payments.</p>
+                    ) : (
+                      <div className="grid gap-3 max-h-80 overflow-y-auto pr-1">
+                        {pendingCharges.map((charge) => (
+                          <div 
+                            key={charge._id} 
+                            className="bg-rose-50 border border-rose-100 p-4 rounded-2xl flex flex-col justify-between md:flex-row md:items-center gap-3 text-left"
+                          >
+                            <div>
+                              <h4 className="text-xs font-black text-rose-900">{charge.reason}</h4>
+                              <p className="text-xs text-rose-800 font-bold mt-1">Amount: ₹{charge.amount}</p>
+                              <p className="text-[10px] text-rose-600 font-semibold uppercase mt-0.5">
+                                Status: {charge.status === "AWAITING_SETTLEMENT" ? "Awaiting Settlement" : "Pending"}
+                              </p>
+                            </div>
+                            {charge.status === "PENDING" && (
+                              <button
+                                onClick={() => handlePayCharge(charge)}
+                                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black transition active:scale-95 cursor-pointer shadow-sm text-center shrink-0"
+                              >
+                                Pay Now
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Other Requests Pending Approval (Reschedule / Cancellation) */}
+        {(data.pendingRescheduleRequestCount && data.pendingRescheduleRequestCount > 0) || (data.pendingCancellationRequestCount && data.pendingCancellationRequestCount > 0) ? (
+          <section className="mt-4 space-y-2">
+            {data.pendingRescheduleRequestCount && data.pendingRescheduleRequestCount > 0 ? (
+              <div className="bg-blue-50 border border-blue-200 p-4 rounded-2xl flex items-center gap-3 shadow-sm">
+                <Clock3 className="text-blue-600 shrink-0" size={20} />
+                <span className="text-xs font-black text-blue-800">Reschedule Request Pending Approval</span>
+              </div>
+            ) : null}
+
+            {data.pendingCancellationRequestCount && data.pendingCancellationRequestCount > 0 ? (
+              <div className="bg-orange-50 border border-orange-200 p-4 rounded-2xl flex items-center gap-3 shadow-sm">
+                <AlertCircle className="text-orange-650 shrink-0" size={20} />
+                <span className="text-xs font-black text-orange-850">Cancellation Request Pending Approval</span>
+              </div>
+            ) : null}
           </section>
-        )}
+        ) : null}
 
         {/* 2. Ads / Offers Carousel */}
         {promotions.length > 0 && (
@@ -1542,6 +1692,30 @@ export default function PlayerDashboardPage() {
               </div>
             </section>
           )}
+
+          {!data.activeFixed && !data.activeCoins && (
+            <section className="rounded-[2rem] bg-amber-50/50 border border-amber-100 p-6 shadow-sm flex flex-col items-center text-center">
+              <AlertCircle className="text-amber-650 w-10 h-10" />
+              <h3 className="mt-3 text-lg font-black text-[var(--primary)]">No Active Membership Plan</h3>
+              <p className="mt-2 text-sm font-semibold text-gray-600 max-w-md">
+                You do not have any active Fixed or Coins membership plans. Purchase a membership plan to unlock booking slots and play options!
+              </p>
+              <div className="mt-5 flex gap-3 flex-wrap justify-center">
+                <Link
+                  href="/player/membership"
+                  className="px-5 py-2.5 bg-[var(--primary)] text-white text-xs font-black rounded-full hover:opacity-90 transition shadow-sm"
+                >
+                  Buy Membership Plan
+                </Link>
+                <Link
+                  href="/player/bookings/create"
+                  className="px-5 py-2.5 bg-white text-[var(--primary)] border border-gray-200 text-xs font-black rounded-full hover:bg-gray-50 transition shadow-sm"
+                >
+                  Book a Court
+                </Link>
+              </div>
+            </section>
+          )}
         </section>
       </section>
 
@@ -1816,14 +1990,39 @@ export default function PlayerDashboardPage() {
 
                   <div>
                     <label className="block text-[10px] uppercase text-gray-400 font-black mb-1.5">New Start Time:</label>
-                    <input
-                      type="time"
-                      value={rescheduleStartTime}
-                      onChange={(e) => {
-                        setRescheduleStartTime(e.target.value);
-                      }}
-                      className="w-full h-11 bg-gray-50 border border-gray-200 rounded-xl px-3 text-xs font-black text-[var(--primary)] outline-none focus:ring-1 focus:ring-[var(--primary)]"
-                    />
+                    {reschedulingSession.gameId && typeof reschedulingSession.gameId === "object" && reschedulingSession.gameId.fixedSlotBooking ? (
+                      <select
+                        value={rescheduleStartTime}
+                        onChange={(e) => {
+                          setRescheduleStartTime(e.target.value);
+                        }}
+                        className="w-full h-11 bg-gray-50 border border-gray-200 rounded-xl px-3 text-xs font-black text-[var(--primary)] outline-none focus:ring-1 focus:ring-[var(--primary)] cursor-pointer"
+                      >
+                        <option value="">Select Slot</option>
+                        {(() => {
+                          const duration = reschedulingSession.gameId.duration || 60;
+                          const slots: string[] = [];
+                          for (let mins = 0; mins < 1440; mins += duration) {
+                            const h = Math.floor(mins / 60);
+                            const m = mins % 60;
+                            const slotStr = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+                            slots.push(slotStr);
+                          }
+                          return slots.map(slot => (
+                            <option key={slot} value={slot}>{slot}</option>
+                          ));
+                        })()}
+                      </select>
+                    ) : (
+                      <input
+                        type="time"
+                        value={rescheduleStartTime}
+                        onChange={(e) => {
+                          setRescheduleStartTime(e.target.value);
+                        }}
+                        className="w-full h-11 bg-gray-50 border border-gray-200 rounded-xl px-3 text-xs font-black text-[var(--primary)] outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                      />
+                    )}
                   </div>
                 </div>
 

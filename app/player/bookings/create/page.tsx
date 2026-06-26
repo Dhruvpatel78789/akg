@@ -6,7 +6,7 @@ import { ArrowLeft, Home, Calendar, Clock, Users } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useMemo, Suspense } from "react";
-import { parseIST } from "@/lib/time";
+import { parseIST, formatToISTDate } from "@/lib/time";
 
 
 type Game = {
@@ -15,6 +15,7 @@ type Game = {
   duration: number; // min duration
   maximumDuration: number;
   bufferMinutes?: number;
+  fixedSlotBooking?: boolean;
 };
 
 function BookSessionForm() {
@@ -61,6 +62,43 @@ function BookSessionForm() {
   const selectedGame = useMemo(() => {
     return games.find((g) => g._id === selectedGameId) || null;
   }, [games, selectedGameId]);
+
+  const fixedSlots = useMemo(() => {
+    if (!selectedGame || !selectedGame.fixedSlotBooking) return [];
+    const minDur = selectedGame.duration || 60;
+    const slots: string[] = [];
+    for (let mins = 0; mins < 1440; mins += minDur) {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      slots.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+    }
+    return slots;
+  }, [selectedGame]);
+
+  useEffect(() => {
+    if (selectedGame && selectedGame.fixedSlotBooking) {
+      const todayStr = formatToISTDate(new Date());
+      const targetDate = date || todayStr;
+      
+      let nearestSlot = "00:00";
+      if (targetDate === todayStr) {
+        const now = new Date();
+        const currentHours = now.getHours();
+        const currentMinutes = now.getMinutes();
+        const totalMinutes = currentHours * 60 + currentMinutes;
+        
+        const dur = selectedGame.duration || 60;
+        const remainder = totalMinutes % dur;
+        const nextSlotMinutes = totalMinutes + (dur - remainder);
+        const finalMinutes = nextSlotMinutes >= 1440 ? 0 : nextSlotMinutes;
+        
+        const h = Math.floor(finalMinutes / 60);
+        const m = finalMinutes % 60;
+        nearestSlot = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      }
+      setStartTime(nearestSlot);
+    }
+  }, [selectedGame, date]);
 
   useEffect(() => {
     if (isPastTime) {
@@ -362,9 +400,9 @@ function BookSessionForm() {
                     required
                     value={date}
                     onChange={(e) => setDate(e.target.value)}
-                    className="h-14 w-full rounded-2xl bg-[#EDEBE2] pl-12 pr-5 font-bold outline-none border-0 text-[var(--primary)]"
+                    className="h-14 w-full rounded-2xl bg-[#EDEBE2] pl-5 pr-12 font-bold outline-none border-0 text-[var(--primary)]"
                   />
-                  <Calendar size={18} className="absolute left-4 top-4.5 text-[var(--primary)]/70 pointer-events-none" />
+                  <Calendar size={18} className="absolute right-4 top-4.5 text-[var(--primary)]/70 pointer-events-none" />
                 </div>
               </label>
 
@@ -375,19 +413,35 @@ function BookSessionForm() {
                     Start Time
                   </span>
                   <div className="relative">
-                    <input
-                      type="time"
-                      required
-                      value={startTime}
-                      onChange={(e) => setStartTime(e.target.value)}
-                      onClick={(e) => {
-                        try {
-                          e.currentTarget.showPicker();
-                        } catch (err) {}
-                      }}
-                      className="h-14 w-full rounded-2xl bg-[#EDEBE2] pl-12 pr-5 font-bold outline-none border-0 text-[var(--primary)] cursor-pointer"
-                    />
-                    <Clock size={18} className="absolute left-4 top-4.5 text-[var(--primary)]/70 pointer-events-none" />
+                    {selectedGame?.fixedSlotBooking ? (
+                      <select
+                        required
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                        className="h-14 w-full rounded-2xl bg-[#EDEBE2] pl-5 pr-12 font-bold outline-none border-0 text-[var(--primary)] cursor-pointer appearance-none"
+                      >
+                        <option value="">Select Slot</option>
+                        {fixedSlots.map((slot) => (
+                          <option key={slot} value={slot}>
+                            {slot}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="time"
+                        required
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                        onClick={(e) => {
+                          try {
+                            e.currentTarget.showPicker();
+                          } catch (err) {}
+                        }}
+                        className="h-14 w-full rounded-2xl bg-[#EDEBE2] pl-5 pr-12 font-bold outline-none border-0 text-[var(--primary)] cursor-pointer"
+                      />
+                    )}
+                    <Clock size={18} className="absolute right-4 top-4.5 text-[var(--primary)]/70 pointer-events-none" />
                   </div>
                 </label>
 

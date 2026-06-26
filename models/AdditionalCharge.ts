@@ -6,6 +6,7 @@ const AdditionalChargeSchema = new Schema(
     bookingId: { type: Schema.Types.ObjectId, ref: "Booking", required: true },
     amount: { type: Number, required: true },
     reason: { type: String, required: true },
+    requestedByAdmin: { type: Boolean, default: false },
     status: {
       type: String,
       enum: ["PENDING", "AWAITING_SETTLEMENT", "COLLECTED", "WAIVED", "SETTLED", "PAID", "FAILED"],

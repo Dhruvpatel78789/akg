@@ -9,7 +9,7 @@ import { Building2, Trophy, UserRound, UsersRound, Coins } from "lucide-react";
 const actions = [
   { label: "Tournament", icon: Trophy, href: "/player/tournament" },
   { label: "Member", icon: UserRound, href: "/player/membership" },
-  { label: "Visitor", icon: UsersRound, href: "/player/visitor" },
+  { label: "Booking", icon: UsersRound, href: "/player/visitor" },
   { label: "Company", icon: Building2, href: "/company" },
 ];
 
@@ -76,14 +76,14 @@ export default function HomePage() {
           </div>
 
           <div className="flex items-center gap-3">
-            <Link href="/player/membership/transactions" className="flex h-16 min-w-16 items-center justify-center gap-1 rounded-full bg-white px-4 shadow-sm ring-1 ring-black/5">
-              <Coins size={31} className="text-[var(--primary)] animate-coin" />
-              {coins > 0 && (
+            {user && (
+              <Link href="/player/membership/transactions" className="flex h-16 min-w-16 items-center justify-center gap-1 rounded-full bg-white px-4 shadow-sm ring-1 ring-black/5">
+                <Coins size={31} className="text-[var(--primary)] animate-coin" />
                 <span className="text-base font-black text-[var(--primary)]">
                   {coins}
                 </span>
-              )}
-            </Link>
+              </Link>
+            )}
 
             <div className="relative">
               <button
@@ -117,7 +117,7 @@ export default function HomePage() {
                           onClick={async () => {
                             const res = await fetch("/api/auth/logout", { method: "POST" });
                             if (res.ok) {
-                              window.location.href = "/auth/login";
+                              window.location.href = "/";
                             }
                           }}
                           className="block w-full rounded-xl px-4 py-2.5 text-left text-sm font-black text-red-500 hover:bg-gray-50"

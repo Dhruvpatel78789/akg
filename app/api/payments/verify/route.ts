@@ -83,11 +83,18 @@ export async function POST(req: NextRequest) {
     if (chargeId) {
       const { AdditionalCharge } = await import("@/models/AdditionalCharge");
       const { Transaction } = await import("@/models/Transaction");
+      const { Notification } = await import("@/models/Notification");
       const charge = await AdditionalCharge.findById(chargeId);
       if (charge) {
         charge.status = "PAID";
         charge.settledAt = new Date();
         await charge.save();
+
+        // Clear associated notification
+        await Notification.updateMany(
+          { relatedEntityId: charge._id, relatedEntityType: "AdditionalCharge" },
+          { $set: { cleared: true } }
+        );
 
         await Transaction.create({
           userId: charge.userId,

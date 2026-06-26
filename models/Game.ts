@@ -19,6 +19,11 @@ const GameSchema = new Schema(
       default: 0,
     },
 
+    fixedSlotBooking: {
+      type: Boolean,
+      default: false,
+    },
+
     active: {
       type: Boolean,
       default: true,

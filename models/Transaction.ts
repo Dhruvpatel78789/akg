@@ -5,7 +5,7 @@ const TransactionSchema = new Schema(
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     type: {
       type: String,
-      enum: ["PLAN_PURCHASE", "COINS_PURCHASE", "SESSION_DEDUCTION", "REFUND"],
+      enum: ["PLAN_PURCHASE", "COINS_PURCHASE", "SESSION_DEDUCTION", "REFUND", "COINS_ADJUSTMENT"],
       required: true,
     },
     amount: Number,

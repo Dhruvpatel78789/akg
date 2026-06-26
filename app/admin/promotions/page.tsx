@@ -40,6 +40,7 @@ type Coupon = {
   active: boolean;
   usageLimit: number;
   usedCount: number;
+  applicableOnMembership?: boolean;
 };
 
 type Offer = {
@@ -103,6 +104,7 @@ export default function AdminPromotionsPage() {
     expiryDate: "",
     active: true,
     usageLimit: 0,
+    applicableOnMembership: false,
   });
 
   const [offerForm, setOfferForm] = useState({
@@ -298,6 +300,7 @@ export default function AdminPromotionsPage() {
         expiryDate: "",
         active: true,
         usageLimit: 0,
+        applicableOnMembership: false,
       });
       loadCoupons();
     } catch (err) {
@@ -977,6 +980,16 @@ export default function AdminPromotionsPage() {
               </label>
             </div>
 
+            <label className="flex items-center gap-2 py-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={couponForm.applicableOnMembership}
+                onChange={(e) => setCouponForm((prev) => ({ ...prev, applicableOnMembership: e.target.checked }))}
+                className="h-4.5 w-4.5 rounded border-gray-300 text-[var(--primary)] focus:ring-[var(--primary)]"
+              />
+              <span className="text-xs font-bold text-gray-700">Allow on Membership Plan Purchase</span>
+            </label>
+
             <button className="h-12 w-full rounded-full bg-[var(--primary)] text-xs font-black text-white hover:opacity-90 active:scale-95 transition">
               Create Coupon Code
             </button>
@@ -991,6 +1004,7 @@ export default function AdminPromotionsPage() {
                     <th className="py-2">Code</th>
                     <th>Value</th>
                     <th>Min Spend</th>
+                    <th>Membership?</th>
                     <th>Limit / Used</th>
                     <th>Expiry</th>
                     <th>Action</th>
@@ -1002,6 +1016,11 @@ export default function AdminPromotionsPage() {
                       <td className="py-3 font-black text-[var(--primary)] select-all">{c.code}</td>
                       <td>{c.type === "PERCENTAGE" ? `${c.value}%` : `₹${c.value}`}</td>
                       <td>₹{c.minBookingAmount || 0}</td>
+                      <td>
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-black ${c.applicableOnMembership ? "bg-emerald-50 text-emerald-800 border border-emerald-100" : "bg-gray-100 text-gray-600"}`}>
+                          {c.applicableOnMembership ? "Yes" : "No"}
+                        </span>
+                      </td>
                       <td>{c.usageLimit > 0 ? `${c.usedCount} / ${c.usageLimit}` : `${c.usedCount} used`}</td>
                       <td>{c.expiryDate ? new Date(c.expiryDate).toLocaleDateString("en-IN") : "Never"}</td>
                       <td>

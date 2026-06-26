@@ -9,6 +9,8 @@ import { Transaction } from "@/models/Transaction";
 import { Game } from "@/models/Game";
 import { Booking } from "@/models/Booking";
 import { PaymentOrder } from "@/models/PaymentOrder";
+import { Coupon } from "@/models/Coupon";
+import { CouponUsage } from "@/models/CouponUsage";
 
 const schema = z.object({
   planId: z.string(),
@@ -16,6 +18,7 @@ const schema = z.object({
   startTime: z.string().optional(),
   endTime: z.string().optional(),
   razorpayOrderId: z.string().optional(),
+  couponId: z.string().optional(),
 });
 
 function getMinutes(start: string, end: string) {
@@ -112,14 +115,89 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Plan not found" }, { status: 404 });
     }
 
-    const { razorpayOrderId } = result.data;
+    const { razorpayOrderId, couponId } = result.data;
     if (!razorpayOrderId) {
       return NextResponse.json({ message: "razorpayOrderId is required to complete this purchase." }, { status: 400 });
     }
 
-    const pOrder = await PaymentOrder.findOne({ razorpayOrderId });
-    if (!pOrder || pOrder.status !== "PAID") {
-      return NextResponse.json({ message: "Unverified transaction. Please process payment first." }, { status: 400 });
+    let originalPrice = 0;
+    let duration: any = null;
+    let normalizedDuration: any = null;
+
+    if (plan.type === "COINS") {
+      originalPrice = plan.price || 0;
+    } else {
+      duration = plan.durations?.[result.data.durationIndex];
+      if (!duration) {
+        return NextResponse.json({ message: "Invalid duration" }, { status: 400 });
+      }
+      normalizedDuration = normalizeDuration(duration);
+      if (normalizedDuration.totalDays <= 0) {
+        return NextResponse.json(
+          {
+            message:
+              "Invalid plan duration. Edit this plan in admin and set months or days correctly.",
+          },
+          { status: 400 }
+        );
+      }
+      originalPrice = duration.finalPrice || 0;
+    }
+
+    let discountAmount = 0;
+    let coupon = null;
+
+    if (couponId) {
+      coupon = await Coupon.findOne({ _id: couponId, active: true });
+      if (!coupon) {
+        return NextResponse.json({ message: "Coupon code is invalid or inactive." }, { status: 400 });
+      }
+      if (coupon.expiryDate && new Date(coupon.expiryDate) < new Date()) {
+        return NextResponse.json({ message: "Coupon has expired." }, { status: 400 });
+      }
+      if (!coupon.applicableOnMembership) {
+        return NextResponse.json({ message: "This coupon is not valid for membership plan recharges." }, { status: 400 });
+      }
+      if (originalPrice < coupon.minBookingAmount) {
+        return NextResponse.json({ message: `Minimum amount to use this coupon is ₹${coupon.minBookingAmount}` }, { status: 400 });
+      }
+      if (coupon.usageLimit > 0 && coupon.usedCount >= coupon.usageLimit) {
+        return NextResponse.json({ message: "Coupon usage limit reached." }, { status: 400 });
+      }
+      const priorUsage = await CouponUsage.findOne({ couponId: coupon._id, userId: user._id });
+      if (priorUsage) {
+        return NextResponse.json({ message: "You have already used this coupon code." }, { status: 400 });
+      }
+
+      if (coupon.type === "FLAT") {
+        discountAmount = coupon.value;
+      } else if (coupon.type === "PERCENTAGE") {
+        discountAmount = (originalPrice * coupon.value) / 100;
+        if (coupon.maxDiscount > 0 && discountAmount > coupon.maxDiscount) {
+          discountAmount = coupon.maxDiscount;
+        }
+      }
+      discountAmount = Math.min(discountAmount, originalPrice);
+    }
+
+    const expectedPrice = Math.max(0, originalPrice - discountAmount);
+    const isFree = expectedPrice <= 0;
+
+    if (!isFree) {
+      if (razorpayOrderId.startsWith("order_free_coupon_")) {
+        return NextResponse.json({ message: "Invalid payment ID for non-free purchase." }, { status: 400 });
+      }
+      const pOrder = await PaymentOrder.findOne({ razorpayOrderId });
+      if (!pOrder || pOrder.status !== "PAID") {
+        return NextResponse.json({ message: "Unverified transaction. Please process payment first." }, { status: 400 });
+      }
+      if (Math.abs(pOrder.amount - expectedPrice) > 1) {
+        return NextResponse.json({ message: `Payment amount discrepancy. Expected ₹${expectedPrice}, got ₹${pOrder.amount}` }, { status: 400 });
+      }
+    } else {
+      if (!razorpayOrderId.startsWith("order_free_coupon_") && !razorpayOrderId.startsWith("order_mock_")) {
+        return NextResponse.json({ message: "Free coupon purchase requires a valid coupon order ID." }, { status: 400 });
+      }
     }
 
     if (plan.type === "COINS") {
@@ -162,7 +240,7 @@ export async function POST(request: Request) {
         startDate: now,
         startTime: now,
         endTime: newExpiry,
-        price: plan.price,
+        price: expectedPrice,
         originalPrice: plan.price,
         status: "ACTIVE",
         paymentStatus: "PAID",
@@ -171,30 +249,23 @@ export async function POST(request: Request) {
       await Transaction.create({
         userId: user._id,
         type: "COINS_PURCHASE",
-        amount: plan.price || 0,
+        amount: expectedPrice,
         coins: coinsToAdd,
         note: `Purchased coin plan: ${plan.name} - Validity: ${validityDays} Days`,
       });
 
+      if (coupon) {
+        coupon.usedCount = (coupon.usedCount || 0) + 1;
+        await coupon.save();
+
+        await CouponUsage.create({
+          couponId: coupon._id,
+          userId: user._id,
+          discountAmount,
+        });
+      }
+
       return NextResponse.json({ message: "Coins purchased" });
-    }
-
-    const duration = plan.durations?.[result.data.durationIndex];
-
-    if (!duration) {
-      return NextResponse.json({ message: "Invalid duration" }, { status: 400 });
-    }
-
-    const normalizedDuration = normalizeDuration(duration);
-
-    if (normalizedDuration.totalDays <= 0) {
-      return NextResponse.json(
-        {
-          message:
-            "Invalid plan duration. Edit this plan in admin and set months or days correctly.",
-        },
-        { status: 400 }
-      );
     }
 
     const game = await Game.findById(plan.gameId).lean();
@@ -274,8 +345,8 @@ export async function POST(request: Request) {
       startTime: timeStringToTodayDate(startTime),
       endTime: timeStringToTodayDate(endTime),
 
-      price: duration.finalPrice,
-      originalPrice: duration.originalPrice,
+      price: expectedPrice,
+      originalPrice: duration.finalPrice,
 
       sessionMinutes,
       bufferMinutes: game.bufferMinutes || 0,
@@ -322,10 +393,21 @@ export async function POST(request: Request) {
     await Transaction.create({
       userId: user._id,
       type: "PLAN_PURCHASE",
-      amount: duration.finalPrice,
+      amount: expectedPrice,
       coins: 0,
       note: `Purchased membership: ${plan.name} - ${duration.label}`,
     });
+
+    if (coupon) {
+      coupon.usedCount = (coupon.usedCount || 0) + 1;
+      await coupon.save();
+
+      await CouponUsage.create({
+        couponId: coupon._id,
+        userId: user._id,
+        discountAmount,
+      });
+    }
 
     return NextResponse.json({ message: "Membership purchased" });
   } catch (error) {

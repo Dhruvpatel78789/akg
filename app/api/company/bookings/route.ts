@@ -63,6 +63,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Game not found" }, { status: 404 });
     }
 
+    if (game.fixedSlotBooking) {
+      const { validateFixedSlot } = await import("@/lib/fixed-slots");
+      if (!validateFixedSlot(startTime, game.duration)) {
+        return NextResponse.json({
+          message: "This game only allows fixed slot bookings. Please select a valid slot time."
+        }, { status: 400 });
+      }
+    }
+
     const [sh, sm] = startTime.split(":").map(Number);
     const [eh, em] = endTime.split(":").map(Number);
     const crossMidnight = (eh * 60 + em) < (sh * 60 + sm);

@@ -17,6 +17,7 @@ export default function AdminSettingsPage() {
   const [memberCancellationHours, setMemberCancellationHours] = useState(24);
   const [billingLetterheadUrl, setBillingLetterheadUrl] = useState("");
   const [maxVisitorCoinUsagePercentage, setMaxVisitorCoinUsagePercentage] = useState(20);
+  const [payAtCounterWindowMinutes, setPayAtCounterWindowMinutes] = useState(30);
   const [uploading, setUploading] = useState(false);
 
   const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -41,6 +42,7 @@ export default function AdminSettingsPage() {
         setMemberCancellationHours(settingsData.settings.memberCancellationHours);
         setBillingLetterheadUrl(settingsData.settings.billingLetterheadUrl || "");
         setMaxVisitorCoinUsagePercentage(settingsData.settings.maxVisitorCoinUsagePercentage ?? 20);
+        setPayAtCounterWindowMinutes(settingsData.settings.payAtCounterWindowMinutes ?? 30);
       }
     } catch {
       setMessage("Network error loading settings");
@@ -64,6 +66,7 @@ export default function AdminSettingsPage() {
           memberCancellationHours: Number(memberCancellationHours),
           billingLetterheadUrl,
           maxVisitorCoinUsagePercentage: Number(maxVisitorCoinUsagePercentage),
+          payAtCounterWindowMinutes: Number(payAtCounterWindowMinutes),
         }),
       });
       const data = await response.json();
@@ -352,6 +355,19 @@ export default function AdminSettingsPage() {
                       </button>
                     </div>
                   )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-black uppercase text-gray-400">Pay at Counter Allowed Window (Mins)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={payAtCounterWindowMinutes}
+                    onChange={(e) => setPayAtCounterWindowMinutes(Number(e.target.value))}
+                    className="w-full h-11 bg-gray-50 rounded-xl px-3 border border-gray-100 outline-none text-xs font-bold text-gray-700 focus:ring-1 focus:ring-[var(--primary)]"
+                  />
                 </div>
               </div>
             </div>

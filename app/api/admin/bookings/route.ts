@@ -7,6 +7,7 @@ import { User } from "@/models/User";
 import { Transaction } from "@/models/Transaction";
 import { updateBookingStatuses } from "@/lib/booking-status-updater";
 import { Notification } from "@/models/Notification";
+import { Game } from "@/models/Game";
 
 export async function GET() {
   try {
@@ -23,7 +24,10 @@ export async function GET() {
     const advancedBookings = await Booking.find({
       status: "BOOKED",
       startTime: { $gt: now },
-      paymentStatus: "PAID",
+      $or: [
+        { paymentStatus: "PAID" },
+        { paymentMethod: "PAY_AT_COUNTER" }
+      ],
       softDeleted: false,
     })
       .populate("userId", "name phone email role")
@@ -122,6 +126,18 @@ export async function PATCH(request: Request) {
         const booking = await Booking.findById(bookingId);
         if (!booking) {
           return NextResponse.json({ message: "Booking not found" }, { status: 404 });
+        }
+
+        if (startTime) {
+          const game = await Game.findById(booking.gameId).lean();
+          if (game && game.fixedSlotBooking) {
+            const { validateFixedSlot } = await import("@/lib/fixed-slots");
+            if (!validateFixedSlot(new Date(startTime), game.duration)) {
+              return NextResponse.json({
+                message: "This game only allows fixed slot bookings. Please select a valid slot time."
+              }, { status: 400 });
+            }
+          }
         }
 
         if (startTime) booking.startTime = new Date(startTime);

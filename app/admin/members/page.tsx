@@ -46,8 +46,23 @@ type HistoryProfile = {
   cancellations: any[];
 };
 
+function mergeById<T extends { _id: string }>(current: T[], incoming: T[]): T[] {
+  const incomingMap = new Map(incoming.map((item) => [item._id, item]));
+
+  const updated = current
+    .map((item) => incomingMap.get(item._id) || item)
+    .filter((item) => incomingMap.has(item._id));
+
+  const existingIds = new Set(current.map((item) => item._id));
+  const added = incoming.filter((item) => !existingIds.has(item._id));
+
+  return [...added, ...updated];
+}
+
 export default function AdminMembersPage() {
   const [members, setMembers] = useState<Member[]>([]);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("createdAt_desc");
@@ -76,7 +91,12 @@ export default function AdminMembersPage() {
   const [coinReason, setCoinReason] = useState("");
   const [adjustingCoins, setAdjustingCoins] = useState(false);
 
-  async function loadMembers() {
+  async function loadMembers(isBackground = false) {
+    if (!isBackground) {
+      if (members.length === 0) setInitialLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     const params = new URLSearchParams({
       search,
       sort,
@@ -86,12 +106,24 @@ export default function AdminMembersPage() {
       regStart,
       regEnd,
     });
-    const response = await fetch(`/api/admin/members?${params.toString()}`, {
-      cache: "no-store",
-    });
-
-    const data = await response.json();
-    setMembers(data.members || []);
+    try {
+      const response = await fetch(`/api/admin/members?${params.toString()}`, {
+        cache: "no-store",
+      });
+      const data = await response.json();
+      if (response.ok) {
+        const incoming = data.members || [];
+        setMembers((prev) => {
+          if (!isBackground || prev.length === 0) return incoming;
+          return mergeById(prev, incoming);
+        });
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setInitialLoading(false);
+      setRefreshing(false);
+    }
   }
 
   async function toggleReschedule(member: Member) {
@@ -339,9 +371,9 @@ export default function AdminMembersPage() {
   }
 
   useEffect(() => {
-    loadMembers();
+    loadMembers(false);
     const interval = setInterval(() => {
-      loadMembers();
+      loadMembers(true);
     }, 30000);
     return () => clearInterval(interval);
   }, [search, sort, membershipStatus, minCoins, maxCoins, regStart, regEnd]);
@@ -569,11 +601,15 @@ export default function AdminMembersPage() {
             </tbody>
           </table>
 
-          {members.length === 0 && (
+          {initialLoading ? (
+            <p className="mt-5 text-sm font-bold text-[var(--text-muted)] animate-pulse">
+              Loading members...
+            </p>
+          ) : members.length === 0 ? (
             <p className="mt-5 text-sm font-bold text-[var(--text-muted)]">
               No members found.
             </p>
-          )}
+          ) : null}
         </div>
       </section>
 
@@ -719,23 +755,71 @@ export default function AdminMembersPage() {
 
               {modalTab === "transactions" && (
                 <div className="space-y-3">
-                  {activeProfile.transactions.map((t) => (
-                    <div key={t._id} className="bg-gray-50 p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
-                      <div>
-                        <h4 className="font-black text-[var(--primary)] text-base flex items-center gap-1.5">
-                          <CreditCard size={16} />
-                          {t.type}
-                        </h4>
-                        <p className="text-xs text-gray-500 font-semibold mt-1">
-                          Mode: {t.paymentMode || "online"} {t.transactionId && `• Txn: ${t.transactionId}`}
-                        </p>
-                        <p className="text-[10px] text-gray-400 mt-1">{t.note}</p>
+                  {activeProfile.transactions.map((t) => {
+                    // Check if deduction or addition
+                    const isCoins = t.coins !== undefined && t.coins > 0;
+                    const isAdjustmentDeduct = t.type === "COINS_ADJUSTMENT" && t.note && t.note.toLowerCase().includes("deduct");
+                    const isDeduction = t.type === "SESSION_DEDUCTION" || isAdjustmentDeduct;
+
+                    // Display value
+                    let valStr = "";
+                    let isGreen = false;
+
+                    if (t.type === "COINS_ADJUSTMENT") {
+                      if (isAdjustmentDeduct) {
+                        valStr = `-${t.coins} Coins`;
+                        isGreen = false;
+                      } else if (t.note && t.note.toLowerCase().includes("added")) {
+                        valStr = `+${t.coins} Coins`;
+                        isGreen = true;
+                      } else if (t.note && t.note.toLowerCase().includes("unfrozen")) {
+                        valStr = `+${t.coins} Coins`;
+                        isGreen = true;
+                      } else if (t.note && t.note.toLowerCase().includes("frozen")) {
+                        valStr = `-${t.coins} Coins`;
+                        isGreen = false;
+                      } else {
+                        valStr = `${t.coins} Coins`;
+                      }
+                    } else if (t.type === "SESSION_DEDUCTION") {
+                      if (isCoins) {
+                        valStr = `-${t.coins} Coins`;
+                      } else {
+                        valStr = `-₹${t.amount || 0}`;
+                      }
+                      isGreen = false;
+                    } else if (t.type === "PLAN_PURCHASE" || t.type === "COINS_PURCHASE") {
+                      valStr = `+₹${t.amount || 0}`;
+                      isGreen = true;
+                    } else if (t.type === "REFUND") {
+                      if (isCoins) {
+                        valStr = `+${t.coins} Coins`;
+                      } else {
+                        valStr = `+₹${t.amount || 0}`;
+                      }
+                      isGreen = true;
+                    } else {
+                      valStr = isCoins ? `${t.coins} Coins` : `₹${t.amount || 0}`;
+                    }
+
+                    return (
+                      <div key={t._id} className="bg-gray-50 p-4 rounded-2xl border border-gray-100 flex justify-between items-center">
+                        <div>
+                          <h4 className="font-black text-[var(--primary)] text-base flex items-center gap-1.5">
+                            <CreditCard size={16} />
+                            {t.type}
+                          </h4>
+                          <p className="text-xs text-gray-500 font-semibold mt-1">
+                            Mode: {t.paymentMode || "online"} {t.transactionId && `• Txn: ${t.transactionId}`}
+                          </p>
+                          <p className="text-[10px] text-gray-400 mt-1">{t.note}</p>
+                        </div>
+                        <div className={`text-right font-black text-base ${isGreen ? "text-emerald-600" : "text-rose-600"}`}>
+                          {valStr}
+                        </div>
                       </div>
-                      <div className="text-right font-black text-[var(--primary)] text-base">
-                        {t.coins > 0 ? `${t.coins} Coins` : `₹${t.amount || 0}`}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {activeProfile.transactions.length === 0 && <p className="text-gray-400 font-semibold text-center py-6">No transactions recorded.</p>}
                 </div>
               )}

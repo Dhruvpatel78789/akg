@@ -77,12 +77,7 @@ export async function GET() {
     softDeleted: false,
   });
 
-  if (membershipsCount === 0 && bookingsCount === 0) {
-    return NextResponse.json({ 
-      noMembership: true, 
-      message: "Please purchase a membership or book a session to access the dashboard." 
-    }, { status: 403 });
-  }
+  const noMembership = membershipsCount === 0 && bookingsCount === 0;
 
   
 
@@ -118,6 +113,7 @@ export async function GET() {
     startTime: { $gte: todayStart, $lte: todayEnd },
     softDeleted: false,
   })
+    .populate("gameId")
     .sort({ startTime: 1 })
     .lean();
 
@@ -132,7 +128,7 @@ export async function GET() {
     startTime: { $gte: currentMonthStart, $lte: nextMonthEnd },
     softDeleted: false,
   })
-    .select("_id gameName court startTime endTime status coinCost price")
+    .populate("gameId")
     .sort({ startTime: 1 })
     .lean();
 
@@ -227,6 +223,7 @@ export async function GET() {
 
   return NextResponse.json({
     user,
+    noMembership,
     activeFixed,
     activeCoins,
     membershipDaysLeft,

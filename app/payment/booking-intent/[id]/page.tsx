@@ -3,6 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, useMemo } from "react";
 import { Calendar, Clock, Users, CreditCard, CheckCircle, AlertTriangle, ShieldCheck } from "lucide-react";
+import { parseIST } from "@/lib/time";
 
 export default function BookingIntentPaymentPage() {
   const params = useParams();
@@ -16,6 +17,108 @@ export default function BookingIntentPaymentPage() {
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [timeLeft, setTimeLeft] = useState<string>("");
   const [isExpired, setIsExpired] = useState(false);
+
+  const [payAtCounterWindow, setPayAtCounterWindow] = useState(30);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<"RAZORPAY" | "PAY_AT_COUNTER">("RAZORPAY");
+
+  // Load Settings
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.settings) {
+          setPayAtCounterWindow(data.settings.payAtCounterWindowMinutes ?? 30);
+        }
+      })
+      .catch((err) => console.error("Failed to load settings", err));
+  }, []);
+
+  const isPayAtCounterAllowed = useMemo(() => {
+    if (!intent || !intent.date || !intent.startTime) return false;
+
+    const bookingStart = parseIST(intent.date, intent.startTime);
+
+    const diffMs = bookingStart.getTime() - Date.now();
+    const diffMins = diffMs / (60 * 1000);
+
+    return diffMins <= payAtCounterWindow && diffMins >= -15;
+  }, [intent, payAtCounterWindow]);
+
+  const [couponCode, setCouponCode] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
+  const [couponError, setCouponError] = useState("");
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [discountAmount, setDiscountAmount] = useState(0);
+
+  // Sync coupon details from intent metadata on load
+  useEffect(() => {
+    if (intent && intent.metadata) {
+      const metadata = intent.metadata;
+      const savedCode = metadata.couponCode || (metadata.get ? metadata.get("couponCode") : null);
+      const savedDiscount = metadata.discount || (metadata.get ? metadata.get("discount") : null);
+      if (savedCode && savedDiscount) {
+        setAppliedCoupon({ code: savedCode });
+        setDiscountAmount(Number(savedDiscount));
+      }
+    }
+  }, [intent]);
+
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) return;
+    setCouponError("");
+    setCouponLoading(true);
+    try {
+      const res = await fetch(`/api/public/booking-intents/${id}/apply-coupon`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: couponCode.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setAppliedCoupon({ code: couponCode.trim().toUpperCase() });
+        setDiscountAmount(data.discountAmount);
+        setIntent((prev: any) => ({
+          ...prev,
+          price: data.finalPrice,
+          razorpayOrderId: data.razorpayOrderId,
+        }));
+      } else {
+        setCouponError(data.message || "Invalid coupon code");
+      }
+    } catch {
+      setCouponError("Network issue applying coupon code");
+    } finally {
+      setCouponLoading(false);
+    }
+  };
+
+  const handleRemoveCoupon = async () => {
+    setCouponError("");
+    setCouponLoading(true);
+    try {
+      const res = await fetch(`/api/public/booking-intents/${id}/remove-coupon`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setAppliedCoupon(null);
+        setCouponCode("");
+        setDiscountAmount(0);
+        setIntent((prev: any) => ({
+          ...prev,
+          price: data.finalPrice,
+          razorpayOrderId: data.razorpayOrderId,
+        }));
+      } else {
+        setCouponError(data.message || "Failed to remove coupon");
+      }
+    } catch {
+      setCouponError("Network issue removing coupon code");
+    } finally {
+      setCouponLoading(false);
+    }
+  };
 
   // Load Razorpay checkout script
   useEffect(() => {
@@ -88,6 +191,20 @@ export default function BookingIntentPaymentPage() {
     setError("");
 
     try {
+      if (selectedPaymentMethod === "PAY_AT_COUNTER") {
+        const res = await fetch(`/api/public/booking-intents/${id}/pay-at-counter`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setPaymentSuccess(true);
+        } else {
+          setError(data.message || "Failed to confirm Pay at Counter booking");
+        }
+        setPaying(false);
+        return;
+      }
       const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_T0IyDcGXxS5Fr0";
       const orderId = intent.razorpayOrderId;
 
@@ -201,9 +318,13 @@ export default function BookingIntentPaymentPage() {
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
               <CheckCircle size={36} />
             </div>
-            <h2 className="text-2xl font-black text-emerald-600">Payment Successful!</h2>
+            <h2 className="text-2xl font-black text-emerald-600">
+              {selectedPaymentMethod === "PAY_AT_COUNTER" ? "Slot Reserved!" : "Payment Successful!"}
+            </h2>
             <p className="text-sm font-bold text-gray-500 px-4">
-              Your booking is processed and slot is confirmed. A WhatsApp ticket has been dispatched to *{intent?.phone}*.
+              {selectedPaymentMethod === "PAY_AT_COUNTER"
+                ? "Your slot has been reserved. Please pay at the counter before your session starts. Your session will start only after payment is confirmed by staff."
+                : `Your booking is processed and slot is confirmed. A WhatsApp ticket has been dispatched to *${intent?.phone}*.`}
             </p>
             <button
               onClick={() => router.push("/")}
@@ -274,10 +395,62 @@ export default function BookingIntentPaymentPage() {
                 </div>
               </div>
 
+              {/* Coupon Application Box */}
+              <div className="border-t pt-4 border-gray-200 space-y-2 text-left">
+                <span className="text-[10px] font-black uppercase text-gray-400">Apply Discount Coupon</span>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="ENTER COUPON CODE"
+                    value={couponCode}
+                    onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                    disabled={couponLoading || !!appliedCoupon}
+                    className="h-10 flex-1 border border-black/5 bg-white rounded-xl px-3 text-xs font-black uppercase outline-none focus:ring-1 focus:ring-[var(--primary)] disabled:opacity-60 text-[var(--primary)]"
+                  />
+                  {appliedCoupon ? (
+                    <button
+                      onClick={handleRemoveCoupon}
+                      disabled={couponLoading}
+                      className="h-10 bg-red-50 text-red-700 hover:bg-red-100 font-black text-xs px-4 rounded-xl border border-red-200 transition"
+                    >
+                      Remove
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleApplyCoupon}
+                      disabled={couponLoading || !couponCode.trim()}
+                      className="h-10 bg-[var(--primary)] text-white disabled:opacity-55 font-black text-xs px-4 rounded-xl hover:opacity-90 active:scale-95 transition"
+                    >
+                      {couponLoading ? "Checking..." : "Apply"}
+                    </button>
+                  )}
+                </div>
+                {couponError && (
+                  <p className="text-[10px] font-bold text-rose-600">
+                    ⚠️ {couponError}
+                  </p>
+                )}
+                {appliedCoupon && (
+                  <p className="text-[10px] font-bold text-emerald-600 flex items-center gap-1">
+                    ✓ Coupon <strong>{appliedCoupon.code}</strong> applied! You saved ₹{discountAmount}.
+                  </p>
+                )}
+              </div>
+
               {/* Price Details */}
-              <div className="border-t pt-3 border-gray-200 flex justify-between items-center">
-                <span className="text-sm font-black text-gray-400 uppercase">Total Amount</span>
-                <span className="text-2xl font-black text-[var(--primary)]">₹{intent.price}</span>
+              <div className="border-t pt-3 border-gray-200 space-y-1.5">
+                {appliedCoupon && (
+                  <div className="flex justify-between items-center text-xs font-semibold text-gray-500">
+                    <span>Original Price</span>
+                    <span className="line-through">₹{intent.price + discountAmount}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-black text-gray-400 uppercase">
+                    {appliedCoupon ? "Adjusted Total" : "Total Amount"}
+                  </span>
+                  <span className="text-2xl font-black text-[var(--primary)]">₹{intent.price}</span>
+                </div>
               </div>
             </div>
 
@@ -289,6 +462,66 @@ export default function BookingIntentPaymentPage() {
               </div>
             )}
 
+            {/* Payment Option Selection Toggle */}
+            {isPayAtCounterAllowed && (
+              <div className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-black/5 space-y-3 text-left">
+                <p className="text-xs font-black uppercase text-[var(--text-muted)] tracking-wider">
+                  Select Payment Option
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPaymentMethod("RAZORPAY")}
+                    className={`h-12 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 border ${
+                      selectedPaymentMethod === "RAZORPAY"
+                        ? "bg-[var(--primary)] text-white border-[var(--primary)] shadow-sm"
+                        : "bg-gray-50 text-[var(--primary)] border-black/5 hover:bg-gray-100"
+                    }`}
+                  >
+                    Pay Online
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPaymentMethod("PAY_AT_COUNTER")}
+                    className={`h-12 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 border ${
+                      selectedPaymentMethod === "PAY_AT_COUNTER"
+                        ? "bg-[var(--primary)] text-white border-[var(--primary)] shadow-sm"
+                        : "bg-gray-50 text-[var(--primary)] border-black/5 hover:bg-gray-100"
+                    }`}
+                  >
+                    Pay at Counter
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Information Card based on Payment Mode */}
+            {selectedPaymentMethod === "PAY_AT_COUNTER" ? (
+              <div className="rounded-[2rem] bg-amber-50 p-5 text-center space-y-3 border border-amber-100 text-amber-900 text-left">
+                <div className="flex justify-center">
+                  <Clock size={32} />
+                </div>
+                <h3 className="text-sm font-black text-center">
+                  Pay at Counter Requested
+                </h3>
+                <p className="text-xs font-semibold leading-relaxed">
+                  Your reservation will be held. Please pay at the zone counter prior to checking in. Staff will activate your session once payment is received.
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-[2rem] bg-[#EDEBE2] p-5 text-center space-y-3">
+                <div className="flex justify-center text-[var(--primary)]">
+                  <CreditCard size={32} />
+                </div>
+                <h3 className="text-sm font-black text-[var(--primary)]">
+                  Secure Test Gateway Enabled
+                </h3>
+                <p className="text-xs font-semibold text-[var(--text-muted)] leading-relaxed">
+                  Clicking Make Payment will simulate a successful Razorpay callback and immediately activate your membership or secure your booking.
+                </p>
+              </div>
+            )}
+
             {error && <p className="text-xs font-black text-red-500 bg-red-50 p-2 rounded-lg">{error}</p>}
 
             <button
@@ -296,7 +529,13 @@ export default function BookingIntentPaymentPage() {
               disabled={paying}
               className="h-16 w-full rounded-full bg-[var(--primary)] hover:opacity-95 active:scale-95 text-base font-black text-white transition shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              <span>{paying ? "Processing Order..." : `Pay ₹${intent.price}`}</span>
+              {paying ? (
+                <span>Processing Order...</span>
+              ) : selectedPaymentMethod === "PAY_AT_COUNTER" ? (
+                <span>Confirm & Reserve Slot</span>
+              ) : (
+                <span>Pay ₹{intent.price}</span>
+              )}
             </button>
 
             <div className="flex items-center justify-center gap-1.5 text-[10px] font-bold text-gray-400">

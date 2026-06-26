@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Calendar, Clock, User, Users, CheckCircle, AlertCircle } from "lucide-react";
-import { parseIST } from "@/lib/time";
+import { parseIST, formatToISTDate } from "@/lib/time";
 
 
 
@@ -13,6 +13,7 @@ type Game = {
   name: string;
   duration: number;
   maximumDuration: number;
+  fixedSlotBooking?: boolean;
 };
 
 type Colleague = {
@@ -58,6 +59,43 @@ export default function CompanyBookingCreatePage() {
     return allowedGames.find((g) => g._id === selectedGameId) || null;
   }, [allowedGames, selectedGameId]);
 
+  const fixedSlots = useMemo(() => {
+    if (!selectedGame || !selectedGame.fixedSlotBooking) return [];
+    const minDur = selectedGame.duration || 60;
+    const slots: string[] = [];
+    for (let mins = 0; mins < 1440; mins += minDur) {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      slots.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+    }
+    return slots;
+  }, [selectedGame]);
+
+  useEffect(() => {
+    if (selectedGame && selectedGame.fixedSlotBooking) {
+      const todayStr = formatToISTDate(new Date());
+      const targetDate = date || todayStr;
+      
+      let nearestSlot = "00:00";
+      if (targetDate === todayStr) {
+        const now = new Date();
+        const currentHours = now.getHours();
+        const currentMinutes = now.getMinutes();
+        const totalMinutes = currentHours * 60 + currentMinutes;
+        
+        const dur = selectedGame.duration || 60;
+        const remainder = totalMinutes % dur;
+        const nextSlotMinutes = totalMinutes + (dur - remainder);
+        const finalMinutes = nextSlotMinutes >= 1440 ? 0 : nextSlotMinutes;
+        
+        const h = Math.floor(finalMinutes / 60);
+        const m = finalMinutes % 60;
+        nearestSlot = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      }
+      setStartTime(nearestSlot);
+    }
+  }, [selectedGame, date]);
+
   // Status/Validation states
   const [error, setError] = useState("");
   const [validationError, setValidationError] = useState("");
@@ -96,6 +134,11 @@ export default function CompanyBookingCreatePage() {
           return;
         }
         const dashboardData = await dashboardRes.json();
+        
+        if (dashboardData?.user?.mustChangePassword) {
+          router.replace("/company/change-password");
+          return;
+        }
         
         let gamesList = dashboardData.allowedGames || [];
         if (gamesList.length === 0) {
@@ -329,14 +372,14 @@ export default function CompanyBookingCreatePage() {
           <div className="grid gap-1.5">
             <label className="text-xs font-bold text-[var(--text-muted)] px-1">Date</label>
             <div className="relative">
-              <Calendar className="absolute left-5 top-4.5 text-[var(--text-muted)]" size={18} />
               <input
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
                 required
-                className="h-14 w-full rounded-full bg-[var(--background)] pl-12 pr-5 font-bold outline-none ring-1 ring-black/5"
+                className="h-14 w-full rounded-full bg-[var(--background)] pl-5 pr-12 font-bold outline-none ring-1 ring-black/5"
               />
+              <Calendar className="absolute right-5 top-4.5 text-[var(--text-muted)] pointer-events-none" size={18} />
             </div>
           </div>
 
@@ -345,14 +388,30 @@ export default function CompanyBookingCreatePage() {
             <div className="grid gap-1.5">
               <label className="text-xs font-bold text-[var(--text-muted)] px-1">Start Time</label>
               <div className="relative">
-                <Clock className="absolute left-4 top-4.5 text-[var(--text-muted)]" size={18} />
-                <input
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  required
-                  className="h-14 w-full rounded-full bg-[var(--background)] pl-11 pr-3 font-bold outline-none ring-1 ring-black/5"
-                />
+                {selectedGame?.fixedSlotBooking ? (
+                  <select
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    required
+                    className="h-14 w-full rounded-full bg-[var(--background)] pl-5 pr-12 font-bold outline-none ring-1 ring-black/5 appearance-none cursor-pointer"
+                  >
+                    <option value="">Select Slot</option>
+                    {fixedSlots.map((slot) => (
+                      <option key={slot} value={slot}>
+                        {slot}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="time"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    required
+                    className="h-14 w-full rounded-full bg-[var(--background)] pl-5 pr-12 font-bold outline-none ring-1 ring-black/5"
+                  />
+                )}
+                <Clock className="absolute right-4 top-4.5 text-[var(--text-muted)] pointer-events-none" size={18} />
               </div>
             </div>
 

@@ -30,6 +30,7 @@ async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd:
     endTime: { $gt: bookingStart },
     $or: [
       { paymentStatus: "PAID" },
+      { paymentMethod: "PAY_AT_COUNTER" },
       { paymentStatus: "PENDING", createdAt: { $gte: tenMinutesAgo } }
     ]
   };
@@ -86,6 +87,17 @@ export async function POST(
 
     if (!date || !startTime || !endTime) {
       return NextResponse.json({ message: "Missing new reschedule date or times" }, { status: 400 });
+    }
+
+    const { Game } = await import("@/models/Game");
+    const game = await Game.findById(booking.gameId).lean();
+    if (game && game.fixedSlotBooking) {
+      const { validateFixedSlot } = await import("@/lib/fixed-slots");
+      if (!validateFixedSlot(startTime, game.duration)) {
+        return NextResponse.json({
+          message: "This game only allows fixed slot bookings. Please select a valid slot time."
+        }, { status: 400 });
+      }
     }
 
     const user = await User.findById(authUser.userId);

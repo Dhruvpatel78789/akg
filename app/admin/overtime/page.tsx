@@ -26,6 +26,7 @@ type AdditionalCharge = {
   additionalUnits?: number;
   reason: string;
   status: "PENDING" | "AWAITING_SETTLEMENT" | "COLLECTED" | "WAIVED" | "SETTLED" | "PAID";
+  requestedByAdmin?: boolean;
   createdAt: string;
   settledAt?: string;
 };
@@ -57,51 +58,114 @@ type CompanyOvertime = {
   createdAt: string;
 };
 
+function mergeById<T extends { _id: string }>(current: T[], incoming: T[]): T[] {
+  const incomingMap = new Map(incoming.map((item) => [item._id, item]));
+
+  const updated = current
+    .map((item) => incomingMap.get(item._id) || item)
+    .filter((item) => incomingMap.has(item._id));
+
+  const existingIds = new Set(current.map((item) => item._id));
+  const added = incoming.filter((item) => !existingIds.has(item._id));
+
+  return [...added, ...updated];
+}
+
 export default function AdminOvertimePage() {
   const [charges, setCharges] = useState<AdditionalCharge[]>([]);
   const [companyOvertime, setCompanyOvertime] = useState<CompanyOvertime[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
   const [activeTab, setActiveTab] = useState<"ALL" | "AUTO_EXITED" | "PENDING" | "SETTLED" | "WAIVED">("ALL");
 
-  async function loadData() {
-    setLoading(true);
+  async function loadData(isBackground = false) {
+    if (!isBackground) {
+      if (charges.length === 0) setInitialLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     setMessage("");
     try {
       const response = await fetch("/api/admin/additional-charges", { cache: "no-store" });
       const data = await response.json();
       if (response.ok && data.success) {
-        setCharges(data.charges || []);
-        setCompanyOvertime(data.companyOvertime || []);
+        const incomingCharges = data.charges || [];
+        const incomingCompany = data.companyOvertime || [];
+        setCharges((prev) => {
+          if (prev.length === 0) return incomingCharges;
+          return mergeById(prev, incomingCharges);
+        });
+        setCompanyOvertime((prev) => {
+          if (prev.length === 0) return incomingCompany;
+          return mergeById(prev, incomingCompany);
+        });
       } else {
         setMessage(data.message || "Failed to load data");
       }
     } catch {
       setMessage("Error fetching additional charges and company overtime data");
     } finally {
-      setLoading(false);
+      setInitialLoading(false);
+      setRefreshing(false);
     }
   }
 
   useEffect(() => {
-    loadData();
+    loadData(false);
     const interval = setInterval(() => {
-      loadData();
+      loadData(true);
     }, 30000);
     return () => clearInterval(interval);
   }, []);
 
+  async function handleRequestPayment(chargeId: string) {
+    try {
+      const response = await fetch(`/api/admin/charges/${chargeId}/request-payment`, {
+        method: "POST",
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setMessage("Payment requested successfully");
+        setCharges((prev) =>
+          prev.map((c) => (c._id === chargeId ? { ...c, requestedByAdmin: true } : c))
+        );
+        setTimeout(() => setMessage(""), 3500);
+      } else {
+        setMessage(data.message || "Request payment failed");
+      }
+    } catch {
+      setMessage("Network error requesting payment");
+    }
+  }
+
   async function handleAction(chargeId: string, status: "COLLECTED" | "WAIVED" | "SETTLED") {
     try {
-      const response = await fetch("/api/admin/additional-charges", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chargeId, status }),
+      let url = "/api/admin/additional-charges";
+      let method = "PATCH";
+      let body: any = { chargeId, status };
+      
+      if (status === "WAIVED") {
+        url = `/api/admin/charges/${chargeId}/waive`;
+        method = "POST";
+        body = undefined;
+      } else if (status === "SETTLED") {
+        url = `/api/admin/charges/${chargeId}/settle`;
+        method = "POST";
+        body = undefined;
+      }
+
+      const response = await fetch(url, {
+        method,
+        headers: body ? { "Content-Type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
       });
       const data = await response.json();
       if (response.ok && data.success) {
         setMessage(`Charge successfully marked as ${status.toLowerCase()}`);
-        loadData();
+        setCharges((prev) =>
+          prev.map((c) => (c._id === chargeId ? { ...c, status: status === "COLLECTED" ? "COLLECTED" : (status === "WAIVED" ? "WAIVED" : "SETTLED") } : c))
+        );
         setTimeout(() => setMessage(""), 3500);
       } else {
         setMessage(data.message || "Operation failed");
@@ -121,7 +185,10 @@ export default function AdminOvertimePage() {
       const data = await response.json();
       if (response.ok && data.success) {
         setMessage(`Company overtime entry successfully updated to ${companyOvertimeStatus.toLowerCase()}`);
-        loadData();
+        // Update local companyOvertime state
+        setCompanyOvertime((prev) =>
+          prev.map((co) => (co._id === companyEntryId ? { ...co, companyOvertimeStatus } : co))
+        );
         setTimeout(() => setMessage(""), 3500);
       } else {
         setMessage(data.message || "Operation failed");
@@ -167,10 +234,11 @@ export default function AdminOvertimePage() {
           </p>
         </div>
         <button
-          onClick={loadData}
+          onClick={() => loadData(true)}
+          disabled={initialLoading || refreshing}
           className="rounded-full bg-white border border-gray-250 px-5 py-2.5 text-xs font-black text-[var(--primary)] flex items-center gap-2 hover:bg-gray-50 active:scale-95 transition-all shadow-sm w-max"
         >
-          <RefreshCw size={14} className={loading ? "animate-spin text-indigo-600" : ""} />
+          <RefreshCw size={14} className={initialLoading || refreshing ? "animate-spin text-indigo-600" : ""} />
           Refresh
         </button>
       </header>
@@ -205,7 +273,7 @@ export default function AdminOvertimePage() {
 
       {/* Main content tables */}
       <section className="mt-6 space-y-6">
-        {loading ? (
+        {initialLoading ? (
           <p className="text-sm font-bold text-[var(--text-muted)] py-8 animate-pulse text-center">Loading overtime records...</p>
         ) : (
           <div className="space-y-8">
@@ -271,11 +339,24 @@ export default function AdminOvertimePage() {
                               }`}>
                                 {charge.status}
                               </span>
+                              {charge.status === "PENDING" && (
+                                <span className={`block text-[9px] font-black mt-1 text-left ${charge.requestedByAdmin ? "text-indigo-600" : "text-gray-400"}`}>
+                                  {charge.requestedByAdmin ? "PAYMENT REQUESTED" : "AWAITING REQUEST"}
+                                </span>
+                              )}
                             </td>
                             <td>
-                              <div className="flex gap-1.5">
+                              <div className="flex gap-1.5 flex-wrap">
                                 {(charge.status === "PENDING" || charge.status === "AWAITING_SETTLEMENT") && (
                                   <>
+                                    {charge.status === "PENDING" && !charge.requestedByAdmin && (
+                                      <button
+                                        onClick={() => handleRequestPayment(charge._id)}
+                                        className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-black text-white hover:opacity-90 active:scale-95 transition"
+                                      >
+                                        Request Payment
+                                      </button>
+                                    )}
                                     <button
                                       onClick={() => handleAction(charge._id, "COLLECTED")}
                                       className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-black text-white hover:opacity-90 active:scale-95 transition"

@@ -16,9 +16,23 @@ type Visitor = {
   createdAt: string;
 };
 
+function mergeById<T extends { _id: string }>(current: T[], incoming: T[]): T[] {
+  const incomingMap = new Map(incoming.map((item) => [item._id, item]));
+
+  const updated = current
+    .map((item) => incomingMap.get(item._id) || item)
+    .filter((item) => incomingMap.has(item._id));
+
+  const existingIds = new Set(current.map((item) => item._id));
+  const added = incoming.filter((item) => !existingIds.has(item._id));
+
+  return [...added, ...updated];
+}
+
 export default function AdminVisitorsPage() {
   const [visitors, setVisitors] = useState<Visitor[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("createdAt_desc");
@@ -31,29 +45,38 @@ export default function AdminVisitorsPage() {
   const [showSpent, setShowSpent] = useState(true);
   const [showLastVisit, setShowLastVisit] = useState(true);
 
-  async function loadVisitors() {
-    setLoading(true);
+  async function loadVisitors(isBackground = false) {
+    if (!isBackground) {
+      if (visitors.length === 0) setInitialLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     try {
       const response = await fetch(`/api/admin/visitors`, {
         cache: "no-store",
       });
       const data = await response.json();
       if (response.ok && data.success) {
-        setVisitors(data.visitors || []);
+        const incoming = data.visitors || [];
+        setVisitors((prev) => {
+          if (prev.length === 0) return incoming;
+          return mergeById(prev, incoming);
+        });
       } else {
         setMessage(data.message || "Failed to load visitors");
       }
     } catch (err: any) {
       setMessage("Error loading visitors data");
     } finally {
-      setLoading(false);
+      setInitialLoading(false);
+      setRefreshing(false);
     }
   }
 
   useEffect(() => {
     loadVisitors();
     const interval = setInterval(() => {
-      loadVisitors();
+      loadVisitors(true);
     }, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -228,7 +251,7 @@ export default function AdminVisitorsPage() {
 
       {/* Table */}
       <section className="mt-6 overflow-hidden rounded-2xl bg-white p-5 shadow-sm ring-1 ring-black/5">
-        {loading ? (
+        {initialLoading ? (
           <p className="text-sm font-bold text-[var(--text-muted)] py-4">Loading visitors data...</p>
         ) : (
           <div className="overflow-x-auto">

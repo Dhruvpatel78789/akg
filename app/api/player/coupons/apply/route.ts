@@ -30,6 +30,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: `Minimum booking amount to use this coupon is ₹${coupon.minBookingAmount}` }, { status: 400 });
     }
 
+    // Check if applying for membership but coupon is not allowed on membership
+    const { isMembershipPurchase } = body;
+    if (isMembershipPurchase && !coupon.applicableOnMembership) {
+      return NextResponse.json({ success: false, message: "This coupon is only valid for game bookings, not membership recharges." }, { status: 400 });
+    }
+
     // Usage limit check
     if (coupon.usageLimit > 0 && coupon.usedCount >= coupon.usageLimit) {
       return NextResponse.json({ success: false, message: "Coupon usage limit reached" }, { status: 400 });

@@ -175,6 +175,11 @@ export async function processOvertimeAndExit(
             userId: booking.userId,
             title: "Overtime Charged",
             message: `Your session for ${booking.gameName} exceeded scheduled limit. ${additionalAmount} coins have been auto-deducted for ${additionalUnits} overtime unit(s).`,
+            type: "SESSION_OVERTIME",
+            clearable: true,
+            cleared: false,
+            relatedEntityType: "Booking",
+            relatedEntityId: booking._id,
           });
         } else {
           // Standard cash/pending charge creation (for cash players, or if coin user has insufficient coins)
@@ -188,12 +193,18 @@ export async function processOvertimeAndExit(
             gatewayPaymentStatus: "PENDING",
             adminPaymentStatus: "PENDING",
             effectivePaymentStatus: "PENDING",
+            requestedByAdmin: false,
           });
 
           await Notification.create({
             userId: booking.userId,
             title: "Session Overtime Charge",
-            message: `Your session for ${booking.gameName} has been completed. An overtime charge of ₹${additionalAmount} has been registered for the extra playtime.`,
+            message: `Your session for ${booking.gameName} has been completed. An overtime charge of ₹${additionalAmount} has been registered for the extra playtime and is awaiting admin review.`,
+            type: "SESSION_OVERTIME",
+            clearable: true,
+            cleared: false,
+            relatedEntityType: "Booking",
+            relatedEntityId: booking._id,
           });
         }
       }

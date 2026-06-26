@@ -10,6 +10,9 @@ import { Membership } from "@/models/Membership";
 import { PricingRule } from "@/models/PricingRule";
 import { Transaction } from "@/models/Transaction";
 import { PaymentOrder } from "@/models/PaymentOrder";
+import { Coupon } from "@/models/Coupon";
+import { CouponUsage } from "@/models/CouponUsage";
+import { Settings } from "@/models/Settings";
 import mongoose from "mongoose";
 
 import { parseIST } from "@/lib/time";
@@ -59,6 +62,7 @@ async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd:
     endTime: { $gt: bookingStart },
     $or: [
       { paymentStatus: "PAID" },
+      { paymentMethod: "PAY_AT_COUNTER" },
       { paymentStatus: "PENDING", createdAt: { $gte: tenMinutesAgo } }
     ]
   };
@@ -251,16 +255,8 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { bookingId, gameId, date, startTime, playersCount, razorpayOrderId } = body;
+    const { bookingId, gameId, date, startTime, playersCount, razorpayOrderId, couponId, paymentMethod } = body;
     let { paymentSuccess, endTime } = body;
-
-    if (razorpayOrderId) {
-      const pOrder = await PaymentOrder.findOne({ razorpayOrderId });
-      if (!pOrder || pOrder.status !== "PAID") {
-        return NextResponse.json({ message: "Unverified Razorpay transaction. Please process payment first." }, { status: 400 });
-      }
-      paymentSuccess = true;
-    }
 
     if (!gameId || !date || !startTime || !playersCount) {
       return NextResponse.json({ message: "Missing required booking details" }, { status: 400 });
@@ -269,6 +265,15 @@ export async function POST(request: Request) {
     const game = await Game.findById(gameId).lean();
     if (!game) {
       return NextResponse.json({ message: "Game not found" }, { status: 404 });
+    }
+
+    if (game.fixedSlotBooking) {
+      const { validateFixedSlot } = await import("@/lib/fixed-slots");
+      if (!validateFixedSlot(startTime, game.duration)) {
+        return NextResponse.json({
+          message: "This game only allows fixed slot bookings. Please select a valid slot time."
+        }, { status: 400 });
+      }
     }
 
     // Automatically calculate endTime if durationMinutes is provided but endTime is not
@@ -368,6 +373,154 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: avail.reason || "Slot is not available" }, { status: 409 });
     }
 
+    // Coupon discount calculation
+    let discountAmount = 0;
+    let coupon = null;
+
+    if (couponId) {
+      coupon = await Coupon.findOne({ _id: couponId, active: true });
+      if (!coupon) {
+        return NextResponse.json({ message: "Coupon code is invalid or inactive." }, { status: 400 });
+      }
+      if (coupon.expiryDate && new Date(coupon.expiryDate) < new Date()) {
+        return NextResponse.json({ message: "Coupon has expired." }, { status: 400 });
+      }
+      if (bookingCost < coupon.minBookingAmount) {
+        return NextResponse.json({ message: `Minimum amount to use this coupon is ₹${coupon.minBookingAmount}` }, { status: 400 });
+      }
+      if (coupon.usageLimit > 0 && coupon.usedCount >= coupon.usageLimit) {
+        return NextResponse.json({ message: "Coupon usage limit reached." }, { status: 400 });
+      }
+      const priorUsage = await CouponUsage.findOne({ couponId: coupon._id, userId: user._id });
+      if (priorUsage) {
+        return NextResponse.json({ message: "You have already used this coupon code." }, { status: 400 });
+      }
+
+      if (coupon.type === "FLAT") {
+        discountAmount = coupon.value;
+      } else if (coupon.type === "PERCENTAGE") {
+        discountAmount = (bookingCost * coupon.value) / 100;
+        if (coupon.maxDiscount > 0 && discountAmount > coupon.maxDiscount) {
+          discountAmount = coupon.maxDiscount;
+        }
+      }
+      discountAmount = Math.min(discountAmount, bookingCost);
+    }
+
+    const expectedPrice = Math.max(0, bookingCost - discountAmount);
+    const isFree = expectedPrice <= 0;
+
+    const isPayAtCounter = paymentMethod === "PAY_AT_COUNTER";
+
+    if (isPayAtCounter) {
+      const settings = await Settings.findOne() || { payAtCounterWindowMinutes: 30 };
+      const limitMins = settings.payAtCounterWindowMinutes ?? 30;
+      const minutesUntilBooking = (start.getTime() - Date.now()) / (60 * 1000);
+
+      if (minutesUntilBooking > limitMins || minutesUntilBooking < -15) {
+        return NextResponse.json({
+          message: `Pay at Counter is available only for bookings within ${limitMins} minutes.`
+        }, { status: 400 });
+      }
+
+      // If bookingId is provided, update existing
+      if (bookingId && mongoose.Types.ObjectId.isValid(bookingId)) {
+        const existingBooking = await Booking.findById(bookingId);
+        if (!existingBooking) {
+          return NextResponse.json({ message: "Booking not found" }, { status: 404 });
+        }
+
+        existingBooking.court = avail.courtName;
+        existingBooking.startTime = start;
+        existingBooking.endTime = end;
+        existingBooking.playersCount = count;
+        existingBooking.price = expectedPrice;
+        existingBooking.paymentMethod = "PAY_AT_COUNTER";
+        existingBooking.paymentMode = "cash";
+        existingBooking.paymentStatus = "PENDING";
+        existingBooking.gatewayPaymentStatus = "PENDING";
+        existingBooking.adminPaymentStatus = "PENDING";
+        existingBooking.effectivePaymentStatus = "PENDING";
+        existingBooking.status = "BOOKED";
+
+        await existingBooking.save();
+
+        if (coupon) {
+          coupon.usedCount = (coupon.usedCount || 0) + 1;
+          await coupon.save();
+
+          await CouponUsage.create({
+            couponId: coupon._id,
+            userId: user._id,
+            bookingId: existingBooking._id,
+            discountAmount,
+          });
+        }
+
+        return NextResponse.json({ success: true, message: "Booking reserved, please pay at counter", booking: existingBooking });
+      }
+
+      // Create new booking
+      const booking = await Booking.create({
+        userId: user._id,
+        gameId,
+        gameName: game.name,
+        court: avail.courtName,
+        startTime: start,
+        endTime: end,
+        coinCost: 0,
+        price: expectedPrice,
+        playersCount: count,
+        crossMidnight,
+        status: "BOOKED",
+        playerType: user.role === "VISITOR" ? "VISITOR" : "MEMBER",
+        paymentMethod: "PAY_AT_COUNTER",
+        paymentMode: "cash",
+        paymentStatus: "PENDING",
+        gatewayPaymentStatus: "PENDING",
+        adminPaymentStatus: "PENDING",
+        effectivePaymentStatus: "PENDING",
+      });
+
+      if (coupon) {
+        coupon.usedCount = (coupon.usedCount || 0) + 1;
+        await coupon.save();
+
+        await CouponUsage.create({
+          couponId: coupon._id,
+          userId: user._id,
+          bookingId: booking._id,
+          discountAmount,
+        });
+      }
+
+      return NextResponse.json({ success: true, message: "Booking reserved, please pay at counter", booking });
+    }
+
+    // Verify payment status
+    if (razorpayOrderId) {
+      if (isFree) {
+        if (!razorpayOrderId.startsWith("order_free_coupon_") && !razorpayOrderId.startsWith("order_mock_")) {
+          return NextResponse.json({ message: "Free coupon purchase requires a valid coupon order ID." }, { status: 400 });
+        }
+        paymentSuccess = true;
+      } else {
+        if (razorpayOrderId.startsWith("order_free_coupon_")) {
+          return NextResponse.json({ message: "Invalid payment ID for non-free purchase." }, { status: 400 });
+        }
+        const pOrder = await PaymentOrder.findOne({ razorpayOrderId });
+        if (!pOrder || pOrder.status !== "PAID") {
+          return NextResponse.json({ message: "Unverified Razorpay transaction. Please process payment first." }, { status: 400 });
+        }
+        if (Math.abs(pOrder.amount - expectedPrice) > 1) {
+          return NextResponse.json({ message: `Payment amount discrepancy. Expected ₹${expectedPrice}, got ₹${pOrder.amount}` }, { status: 400 });
+        }
+        paymentSuccess = true;
+      }
+    } else if (isFree && (body.paymentSuccess || paymentSuccess)) {
+      paymentSuccess = true;
+    }
+
     // If bookingId is provided, retrieve and update the existing pending booking
     if (bookingId && mongoose.Types.ObjectId.isValid(bookingId)) {
       const existingBooking = await Booking.findById(bookingId);
@@ -379,7 +532,7 @@ export async function POST(request: Request) {
       existingBooking.startTime = start;
       existingBooking.endTime = end;
       existingBooking.playersCount = count;
-      existingBooking.price = bookingCost;
+      existingBooking.price = expectedPrice;
       existingBooking.paymentStatus = "PAID";
       existingBooking.status = "BOOKED";
 
@@ -388,12 +541,24 @@ export async function POST(request: Request) {
       await Transaction.create({
         userId: user._id,
         type: "SESSION_DEDUCTION",
-        amount: bookingCost,
+        amount: expectedPrice,
         coins: 0,
         note: `Paid booking for ${game.name} on court ${avail.courtName}`,
         paymentMode: "online",
         paymentStatus: "PAID",
       });
+
+      if (coupon) {
+        coupon.usedCount = (coupon.usedCount || 0) + 1;
+        await coupon.save();
+
+        await CouponUsage.create({
+          couponId: coupon._id,
+          userId: user._id,
+          bookingId: existingBooking._id,
+          discountAmount,
+        });
+      }
 
       return NextResponse.json({ success: true, message: "Booking updated and paid", booking: existingBooking });
     }
@@ -470,7 +635,7 @@ export async function POST(request: Request) {
         startTime: start,
         endTime: end,
         coinCost: 0, // No coins deducted
-        price: bookingCost, // Store cash price
+        price: expectedPrice, // Store cash price
         playersCount: count,
         crossMidnight,
         status: "BOOKED",
@@ -482,12 +647,24 @@ export async function POST(request: Request) {
       await Transaction.create({
         userId: user._id,
         type: "SESSION_DEDUCTION",
-        amount: bookingCost,
+        amount: expectedPrice,
         coins: 0,
         note: `Paid booking for ${game.name} on court ${avail.courtName}`,
         paymentMode: "online",
         paymentStatus: "PAID",
       });
+
+      if (coupon) {
+        coupon.usedCount = (coupon.usedCount || 0) + 1;
+        await coupon.save();
+
+        await CouponUsage.create({
+          couponId: coupon._id,
+          userId: user._id,
+          bookingId: booking._id,
+          discountAmount,
+        });
+      }
 
       return NextResponse.json({ success: true, message: "Booking paid and created", booking });
     }
@@ -502,7 +679,7 @@ export async function POST(request: Request) {
         startTime: start,
         endTime: end,
         coinCost: 0,
-        price: bookingCost,
+        price: expectedPrice,
         playersCount: count,
         crossMidnight,
         status: "BOOKED",

@@ -105,6 +105,26 @@ export async function resolveBookingIntent(
   intent.razorpayPaymentId = razorpayPaymentId;
   await intent.save();
 
+  // Record Coupon usage if applied
+  const couponId = intent.metadata?.get?.("couponId") || (intent.metadata as any)?.couponId;
+  if (couponId) {
+    const { Coupon } = await import("@/models/Coupon");
+    const { CouponUsage } = await import("@/models/CouponUsage");
+    const coupon = await Coupon.findById(couponId);
+    if (coupon) {
+      coupon.usedCount = (coupon.usedCount || 0) + 1;
+      await coupon.save();
+
+      const discountAmt = Number(intent.metadata?.get?.("discount") || (intent.metadata as any)?.discount || 0);
+      await CouponUsage.create({
+        couponId: coupon._id,
+        userId: user._id,
+        bookingId: booking._id,
+        discountAmount: discountAmt,
+      });
+    }
+  }
+
   // Send WhatsApp confirmation
   await sendBookingConfirmation(intent.phone, {
     gameName: intent.gameName,

@@ -43,6 +43,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Game not found" }, { status: 404 });
     }
 
+    if (game.fixedSlotBooking) {
+      const { validateFixedSlot } = await import("@/lib/fixed-slots");
+      if (!validateFixedSlot(startTime, game.duration)) {
+        return NextResponse.json({
+          available: false,
+          message: "This game only allows fixed slot bookings. Please select a valid slot time.",
+          suggestedSlots: []
+        }, { status: 400 });
+      }
+    }
+
     // Base duration in minutes from Game model
     const duration = game.duration || 60;
 

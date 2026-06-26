@@ -23,6 +23,7 @@ export async function GET() {
         memberCancellationHours: settings.memberCancellationHours,
         billingLetterheadUrl: settings.billingLetterheadUrl,
         maxVisitorCoinUsagePercentage: settings.maxVisitorCoinUsagePercentage,
+        payAtCounterWindowMinutes: settings.payAtCounterWindowMinutes ?? 30,
       },
     });
   } catch (error: any) {
@@ -44,6 +45,7 @@ export async function POST(req: Request) {
       memberCancellationHours,
       billingLetterheadUrl,
       maxVisitorCoinUsagePercentage,
+      payAtCounterWindowMinutes,
     } = body;
 
     let settings = await Settings.findOne();
@@ -57,6 +59,7 @@ export async function POST(req: Request) {
     if (typeof memberCancellationHours === "number") settings.memberCancellationHours = memberCancellationHours;
     if (typeof billingLetterheadUrl === "string") settings.billingLetterheadUrl = billingLetterheadUrl;
     if (typeof maxVisitorCoinUsagePercentage === "number") settings.maxVisitorCoinUsagePercentage = maxVisitorCoinUsagePercentage;
+    if (typeof payAtCounterWindowMinutes === "number") settings.payAtCounterWindowMinutes = payAtCounterWindowMinutes;
 
     await settings.save();
 
@@ -70,6 +73,7 @@ export async function POST(req: Request) {
         memberCancellationHours: settings.memberCancellationHours,
         billingLetterheadUrl: settings.billingLetterheadUrl,
         maxVisitorCoinUsagePercentage: settings.maxVisitorCoinUsagePercentage,
+        payAtCounterWindowMinutes: settings.payAtCounterWindowMinutes ?? 30,
       },
     });
   } catch (error: any) {

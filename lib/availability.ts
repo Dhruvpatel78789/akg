@@ -34,6 +34,7 @@ export async function checkCourtAvailability(gameId: string, bookingStart: Date,
     endTime: { $gt: bookingStart },
     $or: [
       { paymentStatus: "PAID" },
+      { paymentMethod: "PAY_AT_COUNTER" },
       { paymentStatus: "PENDING", createdAt: { $gte: tenMinutesAgo } }
     ]
   }).lean();

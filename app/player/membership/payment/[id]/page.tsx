@@ -50,7 +50,7 @@ export default function MembershipPaymentPage() {
       return;
     }
 
-    router.push("/player/dashboard");
+    router.replace("/player/dashboard");
   } catch (error) {
     console.error(error);
     setLoading(false);

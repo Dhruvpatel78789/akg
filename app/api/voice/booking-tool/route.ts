@@ -47,6 +47,16 @@ export async function POST(request: Request) {
       }
     }
 
+    if (game.fixedSlotBooking && startTime) {
+      const { validateFixedSlot } = await import("@/lib/fixed-slots");
+      if (!validateFixedSlot(startTime, game.duration)) {
+        return NextResponse.json({
+          success: false,
+          message: "This game only allows fixed slot bookings. Please select a valid slot time."
+        }, { status: 400 });
+      }
+    }
+
     const duration = game.duration || 60;
     const count = Number(playersCount || 1);
 

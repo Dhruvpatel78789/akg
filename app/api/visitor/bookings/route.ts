@@ -25,6 +25,7 @@ async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd:
     endTime: { $gt: bookingStart },
     $or: [
       { paymentStatus: "PAID" },
+      { paymentMethod: "PAY_AT_COUNTER" },
       { paymentStatus: "PENDING", createdAt: { $gte: tenMinutesAgo } }
     ]
   }).lean();
@@ -75,6 +76,15 @@ export async function POST(request: Request) {
     const game = await Game.findById(gameId).lean();
     if (!game) {
       return NextResponse.json({ message: "Game not found" }, { status: 404 });
+    }
+
+    if (game.fixedSlotBooking) {
+      const { validateFixedSlot } = await import("@/lib/fixed-slots");
+      if (!validateFixedSlot(startTime, game.duration)) {
+        return NextResponse.json({
+          message: "This game only allows fixed slot bookings. Please select a valid slot time."
+        }, { status: 400 });
+      }
     }
 
     // Calculate End Time

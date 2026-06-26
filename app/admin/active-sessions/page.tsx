@@ -50,44 +50,88 @@ type ActiveSession = {
   };
 };
 
+function mergeById<T extends { _id: string }>(current: T[], incoming: T[]): T[] {
+  const incomingMap = new Map(incoming.map((item) => [item._id, item]));
+
+  const updated = current
+    .map((item) => incomingMap.get(item._id) || item)
+    .filter((item) => incomingMap.has(item._id));
+
+  const existingIds = new Set(current.map((item) => item._id));
+  const added = incoming.filter((item) => !existingIds.has(item._id));
+
+  return [...added, ...updated];
+}
+
 export default function ActiveSessionsPage() {
   const [sessions, setSessions] = useState<ActiveSession[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
   const [processingId, setProcessingId] = useState<string | null>(null);
 
-  async function loadActiveSessions() {
-    setLoading(true);
+  // Force End extra fields
+  const [forceEndReason, setForceEndReason] = useState("");
+  const [applyCharges, setApplyCharges] = useState(true);
+  const [notifyUser, setNotifyUser] = useState(true);
+
+  async function loadActiveSessions(isBackground = false) {
+    if (!isBackground) {
+      if (sessions.length === 0) setInitialLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     try {
       const response = await fetch("/api/admin/active-sessions", { cache: "no-store" });
       const data = await response.json();
       if (response.ok && data.success) {
-        setSessions(data.activeSessions || []);
+        const incoming = data.activeSessions || [];
+        setSessions((prev) => {
+          if (prev.length === 0) return incoming;
+          return mergeById(prev, incoming);
+        });
       } else {
         setMessage(data.message || "Failed to load active sessions");
       }
     } catch {
       setMessage("Network error loading active sessions");
     } finally {
-      setLoading(false);
+      setInitialLoading(false);
+      setRefreshing(false);
     }
   }
 
-  async function handleEndSession(bookingId: string, forceEnd: boolean = false) {
+  const [confirmModal, setConfirmModal] = useState<{
+    bookingId: string;
+    forceEnd: boolean;
+    playerName: string;
+  } | null>(null);
+
+  async function handleEndSession(
+    bookingId: string, 
+    forceEnd: boolean = false,
+    options?: { reason: string; applyCharges: boolean; notifyUser: boolean }
+  ) {
     if (processingId) return;
     setProcessingId(bookingId);
     setMessage("");
 
     try {
-      const response = await fetch("/api/admin/active-sessions", {
+      const response = await fetch(`/api/admin/sessions/${bookingId}/end`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookingId, forceEnd }),
+        body: JSON.stringify({ 
+          forceEnd,
+          reason: options?.reason || "",
+          applyCharges: options?.applyCharges ?? true,
+          notifyUser: options?.notifyUser ?? true,
+        }),
       });
       const data = await response.json();
       if (response.ok && data.success) {
         setMessage(data.message);
-        loadActiveSessions();
+        // Row level update: remove ended session from active list
+        setSessions(prev => prev.filter(s => s._id !== bookingId));
         setTimeout(() => setMessage(""), 3000);
       } else {
         setMessage(data.message || "Failed to end session");
@@ -96,13 +140,15 @@ export default function ActiveSessionsPage() {
       setMessage("Network error processing request");
     } finally {
       setProcessingId(null);
+      setConfirmModal(null);
+      setForceEndReason("");
     }
   }
 
   useEffect(() => {
-    loadActiveSessions();
+    loadActiveSessions(false);
     const interval = setInterval(() => {
-      loadActiveSessions();
+      loadActiveSessions(true);
     }, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -114,15 +160,17 @@ export default function ActiveSessionsPage() {
     const minutes = Math.floor(elapsedMs / (60 * 1000));
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
+    const secs = Math.floor((elapsedMs % (60 * 1000)) / 1000);
+    
     if (hours > 0) {
-      return `${hours}h ${mins}m`;
+      return `${hours}h ${mins}m ${secs}s`;
     }
-    return `${mins}m`;
+    return `${mins}m ${secs}s`;
   };
 
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    const interval = setInterval(() => setTick((t) => t + 1), 10000); // refresh duration text every 10 seconds
+    const interval = setInterval(() => setTick((t) => t + 1), 1000); // refresh duration text every 1 second
     return () => clearInterval(interval);
   }, []);
 
@@ -133,6 +181,7 @@ export default function ActiveSessionsPage() {
           <h1 className="text-4xl font-black text-[var(--primary)] flex items-center gap-2">
             <Clock size={32} />
             Active Sessions Panel
+            {refreshing && <span className="text-xs text-gray-400 font-normal animate-pulse ml-2">(Refreshing...)</span>}
           </h1>
           <p className="mt-2 text-sm font-bold text-[var(--text-muted)]">
             Monitor ongoing sessions, elapsed play duration, and execute manual checkout actions.
@@ -140,11 +189,11 @@ export default function ActiveSessionsPage() {
         </div>
 
         <button
-          onClick={loadActiveSessions}
-          disabled={loading}
+          onClick={() => loadActiveSessions(true)}
+          disabled={initialLoading || refreshing}
           className="h-11 w-11 flex items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-black/5 hover:opacity-90 active:scale-95 transition"
         >
-          <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
+          <RefreshCw size={18} className={initialLoading || refreshing ? "animate-spin" : ""} />
         </button>
       </div>
 
@@ -155,7 +204,7 @@ export default function ActiveSessionsPage() {
       )}
 
       <div className="mt-6 overflow-hidden rounded-2xl bg-white p-5 shadow-sm ring-1 ring-black/5">
-        {loading && sessions.length === 0 ? (
+        {initialLoading && sessions.length === 0 ? (
           <p className="py-10 text-center text-sm font-bold text-[var(--text-muted)] animate-pulse">
             Loading active court play sessions...
           </p>
@@ -213,14 +262,14 @@ export default function ActiveSessionsPage() {
                       <td className="py-3">
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => handleEndSession(session._id, false)}
+                            onClick={() => setConfirmModal({ bookingId: session._id, forceEnd: false, playerName: session.companyEmployeeId ? session.companyEmployeeId.name : (session.userId?.name || "Guest Visitor") })}
                             disabled={!!processingId}
                             className="h-9 rounded-full bg-emerald-600 text-white px-4 text-xs font-black hover:opacity-90 active:scale-95 transition-all flex items-center gap-1.5"
                           >
                             End Session
                           </button>
                           <button
-                            onClick={() => handleEndSession(session._id, true)}
+                            onClick={() => setConfirmModal({ bookingId: session._id, forceEnd: true, playerName: session.companyEmployeeId ? session.companyEmployeeId.name : (session.userId?.name || "Guest Visitor") })}
                             disabled={!!processingId}
                             className="h-9 rounded-full bg-rose-600 text-white px-4 text-xs font-black hover:opacity-90 active:scale-95 transition-all flex items-center gap-1.5"
                             title="Force end play session (bypass buffer calculation)"
@@ -238,6 +287,92 @@ export default function ActiveSessionsPage() {
           </div>
         )}
       </div>
+
+      {confirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-black text-[var(--primary)]">
+              {confirmModal.forceEnd ? "Force End Session Override" : "Confirm Ending Session"}
+            </h3>
+            
+            {!confirmModal.forceEnd ? (
+              <p className="mt-2 text-sm text-gray-600">
+                Are you sure you want to end the session for <span className="font-black text-[var(--primary)]">{confirmModal.playerName}</span>?
+              </p>
+            ) : (
+              <div className="mt-4 space-y-4 text-left">
+                <p className="text-xs font-bold text-gray-500 uppercase">Administrative Override Fields</p>
+                
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-[var(--primary)]">Reason (Required)</label>
+                  <input
+                    type="text"
+                    value={forceEndReason}
+                    onChange={(e) => setForceEndReason(e.target.value)}
+                    placeholder="e.g. Stuck court slot, incorrect start, user left early"
+                    className="w-full h-10 border rounded-xl px-3 text-xs font-bold focus:border-[var(--primary)] outline-none"
+                    required
+                  />
+                </div>
+
+                <div className="flex items-center justify-between bg-gray-50 p-3 rounded-xl">
+                  <span className="text-xs font-black text-[var(--primary)]">Apply overtime charges?</span>
+                  <input
+                    type="checkbox"
+                    checked={applyCharges}
+                    onChange={(e) => setApplyCharges(e.target.checked)}
+                    className="h-4 w-4 text-[var(--primary)] border-gray-300 rounded focus:ring-[var(--primary)]"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between bg-gray-50 p-3 rounded-xl">
+                  <span className="text-xs font-black text-[var(--primary)]">Notify user?</span>
+                  <input
+                    type="checkbox"
+                    checked={notifyUser}
+                    onChange={(e) => setNotifyUser(e.target.checked)}
+                    className="h-4 w-4 text-[var(--primary)] border-gray-300 rounded focus:ring-[var(--primary)]"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setConfirmModal(null);
+                  setForceEndReason("");
+                }}
+                className="px-4 py-2 border rounded-full text-xs font-black hover:bg-gray-50 active:scale-95 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (confirmModal.forceEnd) {
+                    if (!forceEndReason.trim()) {
+                      alert("Reason is required to force end a session.");
+                      return;
+                    }
+                    handleEndSession(confirmModal.bookingId, true, {
+                      reason: forceEndReason,
+                      applyCharges,
+                      notifyUser,
+                    });
+                  } else {
+                    handleEndSession(confirmModal.bookingId, false);
+                  }
+                }}
+                className={`px-4 py-2 rounded-full text-xs font-black text-white hover:opacity-90 active:scale-95 transition ${
+                  confirmModal.forceEnd ? "bg-rose-600" : "bg-emerald-600"
+                }`}
+              >
+                Confirm End
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

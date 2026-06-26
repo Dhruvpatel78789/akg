@@ -10,6 +10,7 @@ const schema = z.object({
   maximumDuration: z.number().min(1).optional(),
   active: z.boolean().optional(),
   bufferMinutes: z.number().min(0).optional(),
+  fixedSlotBooking: z.boolean().optional(),
 });
 
 export async function PATCH(

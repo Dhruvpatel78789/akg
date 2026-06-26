@@ -21,6 +21,7 @@ type Game = {
   duration: number;
   maximumDuration: number;
   bufferMinutes: number;
+  fixedSlotBooking?: boolean;
   active: boolean;
 };
 
@@ -60,6 +61,7 @@ export default function AdminGamesPage() {
     duration: 60,
     maximumDuration: 180,
     bufferMinutes: 10,
+    fixedSlotBooking: false,
   });
 
   const [editGame, setEditGame] = useState({
@@ -67,6 +69,7 @@ export default function AdminGamesPage() {
     duration: 60,
     maximumDuration: 180,
     bufferMinutes: 10,
+    fixedSlotBooking: false,
     active: true,
   });
 
@@ -179,6 +182,7 @@ function getApiErrors(data: any) {
       duration: game.duration,
       maximumDuration: game.maximumDuration,
       bufferMinutes: game.bufferMinutes || 0,
+      fixedSlotBooking: game.fixedSlotBooking || false,
       active: game.active,
     });
 
@@ -214,6 +218,7 @@ function getApiErrors(data: any) {
       duration: 60,
       maximumDuration: 180,
       bufferMinutes: 10,
+      fixedSlotBooking: false,
     });
 
     setMessage("Game created");
@@ -518,6 +523,23 @@ function getApiErrors(data: any) {
                 />
               </label>
 
+              <label className="flex items-center gap-2 cursor-pointer mt-1">
+                <input
+                  type="checkbox"
+                  checked={gameForm.fixedSlotBooking}
+                  onChange={(event) =>
+                    setGameForm((prev) => ({
+                      ...prev,
+                      fixedSlotBooking: event.target.checked,
+                    }))
+                  }
+                  className="rounded border-gray-300 text-[var(--primary)] focus:ring-[var(--primary)] h-4 w-4"
+                />
+                <span className="text-xs font-black uppercase text-[var(--text-muted)] select-none">
+                  Enable Fixed Slot Booking
+                </span>
+              </label>
+
               <button className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] text-sm font-black text-white">
                 <Plus size={18} className="text-[#D7E528]" />
                 Create Game
@@ -616,6 +638,23 @@ function getApiErrors(data: any) {
                     }
                     className={fieldClass}
                   />
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer mt-1 md:col-span-2 xl:col-span-6">
+                  <input
+                    type="checkbox"
+                    checked={editGame.fixedSlotBooking}
+                    onChange={(event) =>
+                      setEditGame((prev) => ({
+                        ...prev,
+                        fixedSlotBooking: event.target.checked,
+                      }))
+                    }
+                    className="rounded border-gray-300 text-[var(--primary)] focus:ring-[var(--primary)] h-4 w-4"
+                  />
+                  <span className="text-xs font-black uppercase text-[var(--text-muted)] select-none">
+                    Enable Fixed Slot Booking
+                  </span>
                 </label>
 
                 <button className="h-12 rounded-2xl bg-[var(--primary)] text-sm font-black text-white md:col-span-2 xl:col-span-6">

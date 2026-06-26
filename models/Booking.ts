@@ -56,8 +56,16 @@ const BookingSchema = new Schema(
     adminOverrideBy: { type: Schema.Types.ObjectId, ref: "User" },
     adminOverrideAt: { type: Date },
     transactionId: { type: String },
-    refundAmount: { type: Number, default: 0 },
     autoEnded: { type: Boolean, default: false },
+    paymentMethod: {
+      type: String,
+      enum: ["RAZORPAY", "PAY_AT_COUNTER", "COINS", "MEMBERSHIP"],
+      default: "RAZORPAY",
+    },
+    refundAmount: { type: Number, default: 0 },
+    forceEnded: { type: Boolean, default: false },
+    forceEndReason: { type: String },
+    forceEndedBy: { type: Schema.Types.ObjectId, ref: "User" },
   },
   { timestamps: true }
 );

@@ -12,6 +12,7 @@ const SettingsSchema = new Schema(
     memberCancellationHours: { type: Number, default: 24 },
     billingLetterheadUrl: { type: String, default: "" },
     maxVisitorCoinUsagePercentage: { type: Number, default: 20 },
+    payAtCounterWindowMinutes: { type: Number, default: 30 },
   },
   { timestamps: true }
 );
