@@ -14,4 +14,6 @@ const CourtSchema = new Schema(
   { timestamps: true }
 );
 
+CourtSchema.index({ gameId: 1, active: 1, disabled: 1 });
+
 export const Court = models.Court || mongoose.model("Court", CourtSchema);

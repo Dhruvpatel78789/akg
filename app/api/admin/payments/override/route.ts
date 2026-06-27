@@ -11,18 +11,20 @@ export async function POST(req: NextRequest) {
   try {
     await connectDB();
 
-    const adminResult = await requireAdmin("bookings", undefined, true);
-    if (adminResult.error) {
-      return adminResult.error;
-    }
-
-    const { payableId, payableType, newStatus, reason, password } = await req.json();
+    const body = await req.json();
+    const { payableId, payableType, newStatus, reason, password } = body;
 
     if (!payableId || !payableType || !newStatus || !password) {
       return NextResponse.json(
         { success: false, message: "Missing required fields: payableId, payableType, newStatus, password" },
         { status: 400 }
       );
+    }
+
+    const subKey = payableType === "Booking" ? "pendingPayments" : "overtimeCharges";
+    const adminResult = await requireAdmin("bookings", subKey, true);
+    if (adminResult.error) {
+      return adminResult.error;
     }
 
     const allowedStatuses = ["PENDING", "PAID", "FAILED", "WAIVED"];

@@ -80,7 +80,7 @@ export async function POST(request: Request) {
     const bookingEnd = parseDateTime(date, endTime, crossMidnight ? 1 : 0);
 
 
-    if (bookingStart.getTime() < Date.now() - 5 * 60 * 1000) {
+    if (bookingStart.getTime() < Date.now()) {
       return NextResponse.json({ message: "Cannot book a slot in the past. Please select a future date and time." }, { status: 400 });
     }
 
@@ -91,7 +91,7 @@ export async function POST(request: Request) {
     const durationMinutes = Math.round((bookingEnd.getTime() - bookingStart.getTime()) / (60 * 1000));
 
     // Get courts
-    const courts = await Court.find({ gameId, active: true, disabled: false }).lean();
+    const courts = await Court.find({ gameId, active: true }).lean();
     if (courts.length === 0) {
       return NextResponse.json({ message: "No active courts configured for this game" }, { status: 400 });
     }
@@ -117,7 +117,7 @@ export async function POST(request: Request) {
 
     let assignedCourtName = "";
     for (const court of courts) {
-      const isBooked = overlappingBookings.some((b) => b.court === court.name);
+      const isBooked = overlappingBookings.some((b) => b.court?.toLowerCase() === court.name.toLowerCase());
       const isBlocked = overlappingBlocks.some((bl) => bl.courtId.toString() === court._id.toString());
 
       if (!isBooked && !isBlocked) {

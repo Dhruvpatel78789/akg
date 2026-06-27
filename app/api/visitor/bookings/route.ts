@@ -10,7 +10,7 @@ import mongoose from "mongoose";
 import { signToken } from "@/lib/auth";
 
 async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd: Date) {
-  const courts = await Court.find({ gameId, active: true, disabled: false }).lean();
+  const courts = await Court.find({ gameId, active: true }).lean();
   if (courts.length === 0) {
     return { available: false, reason: "No courts configured for this game" };
   }
@@ -39,7 +39,7 @@ async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd:
   }).lean();
 
   for (const court of courts) {
-    const isBooked = overlappingBookings.some((b) => b.court === court.name);
+    const isBooked = overlappingBookings.some((b) => b.court?.toLowerCase() === court.name.toLowerCase());
     const isBlocked = overlappingBlocks.some((bl) => bl.courtId.toString() === court._id.toString());
 
     if (!isBooked && !isBlocked) {
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
   try {
     await connectDB();
     const body = await request.json();
-    const { name, phone, email, dob, gameId, date, startTime, durationMinutes, playersCount } = body;
+    const { name, phone, email, dob, gameId, date, startTime, durationMinutes, playersCount, paymentMethod } = body;
 
     if (!name || !phone || !gameId || !date || !startTime || !durationMinutes) {
       return NextResponse.json({ message: "Missing required visitor booking details" }, { status: 400 });
@@ -87,6 +87,8 @@ export async function POST(request: Request) {
       }
     }
 
+    const userCourt = body.court; // optional chosen court
+
     // Calculate End Time
     const duration = Number(durationMinutes);
     const [sh, sm] = startTime.split(":").map(Number);
@@ -99,7 +101,8 @@ export async function POST(request: Request) {
     const start = parseDateTime(date, startTime);
     const end = parseDateTime(date, endTime, crossMidnight ? 1 : 0);
 
-    if (start.getTime() < Date.now() - 5 * 60 * 1000) {
+    // Strict validation: selectedStartTime >= currentServerTime (using server timestamp)
+    if (start.getTime() < Date.now()) {
       return NextResponse.json({ message: "Cannot book a slot in the past. Please select a future date and time." }, { status: 400 });
     }
 
@@ -159,12 +162,41 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: avail.reason || "Slot is not available" }, { status: 409 });
     }
 
+    let finalCourt = avail.courtName;
+    if (game.allowCourtSelection && userCourt) {
+      // Verify chosen court is available
+      const { checkCourtAvailability } = await import("@/lib/availability");
+      const specAvail = await checkCourtAvailability(gameId, start, end);
+      // Wait, let's verify if userCourt is indeed free
+      const overlappingBookings = await Booking.find({
+        gameId,
+        court: { $regex: new RegExp(`^${userCourt}$`, "i") },
+        status: { $in: ["BOOKED", "STARTED"] },
+        softDeleted: false,
+        startTime: { $lt: end },
+        endTime: { $gt: start },
+        $or: [
+          { paymentStatus: "PAID" },
+          { paymentMethod: "PAY_AT_COUNTER" },
+          { paymentStatus: "PENDING", createdAt: { $gte: new Date(Date.now() - 10 * 60 * 1000) } },
+          { paymentStatus: "PENDING", intentExpiresAt: { $gt: new Date() } }
+        ]
+      });
+      if (overlappingBookings.length > 0) {
+        return NextResponse.json({ message: `Court ${userCourt} is not available for this slot.` }, { status: 409 });
+      }
+      finalCourt = userCourt;
+    }
+
+    const intentCreatedAt = new Date();
+    const intentExpiresAt = new Date(intentCreatedAt.getTime() + 10 * 60 * 1000);
+
     // Create Draft/Pending Booking
     const booking = await Booking.create({
       userId: user._id,
       gameId: game._id,
       gameName: game.name,
-      court: avail.courtName,
+      court: finalCourt,
       startTime: start,
       endTime: end,
       price,
@@ -172,9 +204,12 @@ export async function POST(request: Request) {
       playersCount: count,
       crossMidnight,
       playerType: "VISITOR",
-      paymentMode: "online",
+      paymentMode: paymentMethod === "PAY_AT_COUNTER" ? "cash" : "online",
+      paymentMethod: paymentMethod || "RAZORPAY",
       paymentStatus: "PENDING",
       status: "BOOKED",
+      intentCreatedAt,
+      intentExpiresAt,
     });
 
     const token = signToken({

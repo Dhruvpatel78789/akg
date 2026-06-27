@@ -29,6 +29,7 @@ function BookSessionForm() {
   const [selectedGameId, setSelectedGameId] = useState("");
   const [date, setDate] = useState(queryDate);
   const [startTime, setStartTime] = useState("");
+  const [isTimeChangedByUser, setIsTimeChangedByUser] = useState(false);
   const [endTime, setEndTime] = useState("");
   const [playersCount, setPlayersCount] = useState(1);
   const [user, setUser] = useState<{ coins: number } | null>(null);
@@ -42,6 +43,12 @@ function BookSessionForm() {
   const [error, setError] = useState("");
   const [validationError, setValidationError] = useState("");
 
+  // Court Selection & Suggested Slots
+  const [suggestedSlots, setSuggestedSlots] = useState<string[]>([]);
+  const [allowCourtSelection, setAllowCourtSelection] = useState(false);
+  const [availableCourts, setAvailableCourts] = useState<string[]>([]);
+  const [selectedCourt, setSelectedCourt] = useState("");
+
   // Live clock synchronization
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -51,6 +58,24 @@ function BookSessionForm() {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Initialize date on mount if empty
+  useEffect(() => {
+    if (!date) {
+      const now = new Date();
+      setDate(now.toLocaleDateString("en-CA"));
+    }
+  }, [date]);
+
+  // Synchronize startTime live to the current time if not manually changed by the user, and the selected date is today
+  useEffect(() => {
+    if (isTimeChangedByUser) return;
+    const todayStr = formatToISTDate(currentTime);
+    if (date === todayStr) {
+      const nowStr = `${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}`;
+      setStartTime(nowStr);
+    }
+  }, [currentTime, date, isTimeChangedByUser]);
 
   const isPastTime = useMemo(() => {
     if (!date || !startTime) return false;
@@ -101,9 +126,12 @@ function BookSessionForm() {
   }, [selectedGame, date]);
 
   useEffect(() => {
-    if (isPastTime) {
-      setValidationError("Cannot book a slot in the past. Please select a future date and time.");
-      return;
+    if (date && startTime) {
+      const bookingStart = parseIST(date, startTime);
+      if (bookingStart.getTime() < currentTime.getTime()) {
+        setValidationError("Cannot book a slot in the past. Please select a future date and time.");
+        return;
+      }
     }
     if (selectedGame) {
       const min = selectedGame.duration;
@@ -122,7 +150,7 @@ function BookSessionForm() {
       return;
     }
     setValidationError("");
-  }, [isPastTime, selectedGame, duration, playersCount]);
+  }, [date, startTime, currentTime, selectedGame, duration, playersCount]);
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -262,18 +290,32 @@ function BookSessionForm() {
         if (res.ok && data.success) {
           setAvailable(data.available);
           setCoinCost(data.coinCost);
+          setAllowCourtSelection(data.allowCourtSelection || false);
+          setAvailableCourts(data.availableCourts || []);
           if (data.available === false) {
             setError(data.reason || "Slot is fully booked");
+            setSuggestedSlots(data.suggestedSlots || []);
+          } else {
+            setSuggestedSlots([]);
+            if (data.availableCourts && data.availableCourts.length > 0) {
+              if (!selectedCourt || !data.availableCourts.includes(selectedCourt)) {
+                setSelectedCourt(data.availableCourts[0]);
+              }
+            }
           }
         } else {
           setError(data.message || "Failed to check slot details");
           setAvailable(null);
           setCoinCost(null);
+          setSuggestedSlots([]);
+          setAvailableCourts([]);
         }
       } catch (err) {
         console.error(err);
         setChecking(false);
         setError("Network error while checking slot availability");
+        setSuggestedSlots([]);
+        setAvailableCourts([]);
       }
     }, 400);
 
@@ -282,8 +324,15 @@ function BookSessionForm() {
 
   async function handleBook(event: React.FormEvent) {
     event.preventDefault();
-    if (isPastTime || available === false || !date || !startTime || !endTime) {
-      setError("Cannot book a slot in the past. Please select a future date and time.");
+    if (date && startTime) {
+      const bookingStart = parseIST(date, startTime);
+      if (bookingStart.getTime() < Date.now()) {
+        setError("Cannot book a slot in the past. Please select a future date and time.");
+        return;
+      }
+    }
+    if (available === false || !date || !startTime || !endTime) {
+      setError("Please select an available slot.");
       return;
     }
 
@@ -301,6 +350,7 @@ function BookSessionForm() {
           endTime,
           durationMinutes: duration,
           playersCount,
+          court: selectedCourt || undefined,
         }),
       });
 
@@ -325,6 +375,7 @@ function BookSessionForm() {
           coinCost: String(coinCost || 0),
           reason: data.reason,
           message: data.message,
+          court: selectedCourt || "",
         });
         router.push(`/player/payment?${params.toString()}`);
         return;
@@ -417,7 +468,10 @@ function BookSessionForm() {
                       <select
                         required
                         value={startTime}
-                        onChange={(e) => setStartTime(e.target.value)}
+                        onChange={(e) => {
+                          setStartTime(e.target.value);
+                          setIsTimeChangedByUser(true);
+                        }}
                         className="h-14 w-full rounded-2xl bg-[#EDEBE2] pl-5 pr-12 font-bold outline-none border-0 text-[var(--primary)] cursor-pointer appearance-none"
                       >
                         <option value="">Select Slot</option>
@@ -432,7 +486,10 @@ function BookSessionForm() {
                         type="time"
                         required
                         value={startTime}
-                        onChange={(e) => setStartTime(e.target.value)}
+                        onChange={(e) => {
+                          setStartTime(e.target.value);
+                          setIsTimeChangedByUser(true);
+                        }}
                         onClick={(e) => {
                           try {
                             e.currentTarget.showPicker();
@@ -511,6 +568,51 @@ function BookSessionForm() {
                   <p>• Selected duration: {sessionMinutes} mins</p>
                 </div>
               )}
+
+              {/* Court Selection (Per Game Allow setting) */}
+              {allowCourtSelection && available === true && availableCourts.length > 0 && (
+                <div className="grid gap-1.5 border-t pt-4 border-gray-100 text-left">
+                  <span className="text-xs font-black uppercase text-[var(--text-muted)] tracking-wider">Select Court</span>
+                  <div className="flex flex-wrap gap-2.5">
+                    {availableCourts.map((court) => (
+                      <button
+                        key={court}
+                        type="button"
+                        onClick={() => setSelectedCourt(court)}
+                        className={`h-11 px-5 rounded-xl font-bold text-xs transition active:scale-95 ${
+                          selectedCourt === court
+                            ? "bg-[var(--primary)] text-white"
+                            : "bg-gray-100 text-[var(--primary)] hover:bg-gray-200"
+                        }`}
+                      >
+                        {court}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Smart Rescheduling / Nearest Slot Recommendations */}
+              {available === false && suggestedSlots.length > 0 && (
+                <div className="p-4 bg-amber-50 rounded-[1.5rem] border border-amber-100 text-left space-y-2 border-t pt-4">
+                  <p className="text-xs font-black text-amber-900 uppercase tracking-wide">Recommended Slots</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {suggestedSlots.map((slot) => (
+                      <button
+                        key={slot}
+                        type="button"
+                        onClick={() => {
+                          setStartTime(slot);
+                          setIsTimeChangedByUser(true);
+                        }}
+                        className="h-10 rounded-xl bg-white border border-amber-200 hover:bg-amber-100/50 text-[11px] font-bold text-amber-900 transition"
+                      >
+                        {slot}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Availability and Cost Live Display Container */}
@@ -572,7 +674,7 @@ function BookSessionForm() {
               disabled={submitting || checking || available === false || !!error || !!validationError}
               className="h-16 w-full rounded-full bg-[var(--primary)] text-lg font-black text-white hover:opacity-90 active:scale-[0.99] transition-all disabled:opacity-50 disabled:pointer-events-none shadow-md"
             >
-              {submitting ? "Booking..." : "Book Session"}
+              {submitting ? "Booking..." : "Proceed to Payment"}
             </button>
           </form>
         )}

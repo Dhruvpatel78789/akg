@@ -26,9 +26,12 @@ const CourtBlockSchema = new Schema(
     },
 
     applyAfterCurrentSession: { type: Boolean, default: false },
+    keepExistingBookings: { type: Boolean, default: true },
   },
   { timestamps: true }
 );
+
+CourtBlockSchema.index({ gameId: 1, status: 1, blockedFrom: 1, blockedTo: 1 });
 
 export const CourtBlock =
   models.CourtBlock || mongoose.model("CourtBlock", CourtBlockSchema);

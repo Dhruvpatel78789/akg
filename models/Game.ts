@@ -28,6 +28,11 @@ const GameSchema = new Schema(
       type: Boolean,
       default: true,
     },
+
+    allowCourtSelection: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );

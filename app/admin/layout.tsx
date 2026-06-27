@@ -27,6 +27,7 @@ const navItems = [
   { label: "Plans", href: "/admin/plans", icon: CalendarClock },
   { label: "Members", href: "/admin/members", icon: Users },
   { label: "Bookings", href: "/admin/bookings", icon: CalendarClock },
+  { label: "Passes", href: "/admin/passes", icon: CalendarClock },
   { label: "Booking Intents", href: "/admin/booking-intents", icon: CalendarClock },
   { label: "Active Sessions", href: "/admin/active-sessions", icon: Clock },
   { label: "Companies", href: "/admin/companies", icon: Building2 },
@@ -118,43 +119,84 @@ export default function AdminLayout({
           let sectionKey = "";
           let subKey = "";
 
-          if (item.href === "/admin/dashboard") sectionKey = "dashboard";
-          else if (item.href === "/admin/games") sectionKey = "games";
-          else if (item.href === "/admin/plans") sectionKey = "plans";
-          else if (item.href === "/admin/members") sectionKey = "members";
-          else if (item.href === "/admin/bookings") sectionKey = "bookings";
-          else if (item.href === "/admin/booking-intents") sectionKey = "bookings";
-          else if (item.href === "/admin/active-sessions") {
+          if (item.href === "/admin/dashboard") {
+            sectionKey = "dashboard";
+          } else if (item.href === "/admin/games") {
+            sectionKey = "games";
+            subKey = "gameList";
+          } else if (item.href === "/admin/plans") {
+            sectionKey = "plans";
+            subKey = "fixedMembershipPlans";
+          } else if (item.href === "/admin/members") {
+            sectionKey = "members";
+            subKey = "memberList";
+          } else if (item.href === "/admin/bookings") {
+            sectionKey = "bookings";
+            subKey = "advancedBookings";
+          } else if (item.href === "/admin/booking-intents") {
+            sectionKey = "bookings";
+            subKey = "advancedBookings";
+          } else if (item.href === "/admin/active-sessions") {
             sectionKey = "bookings";
             subKey = "ongoingSessions";
-          }
-          else if (item.href === "/admin/companies") sectionKey = "companies";
-          else if (item.href === "/admin/company-entries") sectionKey = "companyEntries";
-          else if (item.href === "/admin/company-billing") sectionKey = "companyBilling";
-          else if (item.href === "/admin/transactions") sectionKey = "companyBilling";
-          else if (item.href === "/admin/visitors") sectionKey = "members";
-          else if (item.href === "/admin/overtime") {
+          } else if (item.href === "/admin/passes") {
+            sectionKey = "passes";
+            subKey = "viewPasses";
+          } else if (item.href === "/admin/companies") {
+            sectionKey = "companies";
+            subKey = "companyList";
+          } else if (item.href === "/admin/company-entries") {
+            sectionKey = "companyEntries";
+            subKey = "entryList";
+          } else if (item.href === "/admin/company-billing") {
+            sectionKey = "companyBilling";
+            subKey = "billList";
+          } else if (item.href === "/admin/transactions") {
+            sectionKey = "companyBilling";
+            subKey = "billList";
+          } else if (item.href === "/admin/visitors") {
+            sectionKey = "members";
+            subKey = "memberList";
+          } else if (item.href === "/admin/overtime") {
             sectionKey = "bookings";
             subKey = "overtimeCharges";
+          } else if (item.href === "/admin/promotions") {
+            sectionKey = "couponsOffers";
+            subKey = "coupons";
+          } else if (item.href === "/admin/visitor-coins") {
+            sectionKey = "visitorCoins";
+            subKey = "visitorCoinBalance";
+          } else if (item.href === "/admin/access-control") {
+            sectionKey = "accessControl";
+          } else if (item.href === "/admin/settings") {
+            sectionKey = "settings";
+            subKey = "generalSettings";
           }
-          else if (item.href === "/admin/promotions") sectionKey = "couponsOffers";
-          else if (item.href === "/admin/visitor-coins") sectionKey = "visitorCoins";
-          else if (item.href === "/admin/access-control") sectionKey = "accessControl";
-          else if (item.href === "/admin/settings") sectionKey = "settings";
 
           if (!sectionKey) return true;
 
           const perm = profile.permissions?.find((p: any) => p.section === sectionKey);
           if (!perm) return false;
-          if (!perm.view) return false;
 
           if (subKey) {
-            // Support both Map format and raw object format
             const subSectionsObj = perm.subSections instanceof Map
               ? Object.fromEntries(perm.subSections)
               : perm.subSections || {};
             const subPerm = subSectionsObj[subKey];
-            if (subPerm && !subPerm.view) return false;
+            if (!subPerm || !subPerm.view) return false;
+          } else {
+            // Derived fallback: check if at least one subSection is viewable
+            // Dashboard or other pages might not have subSections configured in SECTIONS_CONFIG
+            // If they do, require at least one viewable subsection
+            if (sectionKey === "bookings") {
+              const subSectionsObj = perm.subSections instanceof Map
+                ? Object.fromEntries(perm.subSections)
+                : perm.subSections || {};
+              const anySubView = Object.values(subSectionsObj).some((sub: any) => sub?.view);
+              if (!anySubView) return false;
+            } else {
+              if (!perm.view) return false;
+            }
           }
 
           return true;
@@ -192,8 +234,143 @@ export default function AdminLayout({
         <div className="hidden shrink-0 p-4 md:block">{Sidebar}</div>
 
         {open && (
-          <div className="fixed inset-0 z-50 bg-black/40 p-4 md:hidden">
-            {Sidebar}
+          <div className="fixed inset-0 z-50 flex md:hidden">
+            {/* Solid backdrop overlay */}
+            <div className="fixed inset-0 bg-black/60" onClick={() => setOpen(false)} />
+            
+            {/* Solid sidebar window from side */}
+            <aside className="relative z-50 h-full w-72 bg-white p-6 shadow-2xl flex flex-col animate-[slide-in_0.2s_ease-out]">
+              <div className="mb-8 flex items-center justify-between">
+                <Link
+                  href="/admin/dashboard"
+                  onClick={() => setOpen(false)}
+                  className="text-xl font-black text-[var(--primary)]"
+                >
+                  Akshar Game Zone
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="p-1.5 hover:bg-gray-100 rounded-xl"
+                >
+                  <X size={24} className="text-[var(--primary)]" />
+                </button>
+              </div>
+
+              <nav className="grid gap-2 overflow-y-auto max-h-[75vh]">
+                {navItems.filter(item => {
+                  if (!user) return false;
+                  if (user.role === "ADMIN") return true;
+
+                  const profile = user.roleProfile;
+                  if (!profile) return false;
+
+                  let sectionKey = "";
+                  let subKey = "";
+
+                  if (item.href === "/admin/dashboard") {
+                    sectionKey = "dashboard";
+                  } else if (item.href === "/admin/games") {
+                    sectionKey = "games";
+                    subKey = "gameList";
+                  } else if (item.href === "/admin/plans") {
+                    sectionKey = "plans";
+                    subKey = "fixedMembershipPlans";
+                  } else if (item.href === "/admin/members") {
+                    sectionKey = "members";
+                    subKey = "memberList";
+                  } else if (item.href === "/admin/bookings") {
+                    sectionKey = "bookings";
+                    subKey = "advancedBookings";
+                  } else if (item.href === "/admin/booking-intents") {
+                    sectionKey = "bookings";
+                    subKey = "advancedBookings";
+                  } else if (item.href === "/admin/active-sessions") {
+                    sectionKey = "bookings";
+                    subKey = "ongoingSessions";
+                  } else if (item.href === "/admin/passes") {
+                    sectionKey = "passes";
+                    subKey = "viewPasses";
+                  } else if (item.href === "/admin/companies") {
+                    sectionKey = "companies";
+                    subKey = "companyList";
+                  } else if (item.href === "/admin/company-entries") {
+                    sectionKey = "companyEntries";
+                    subKey = "entryList";
+                  } else if (item.href === "/admin/company-billing") {
+                    sectionKey = "companyBilling";
+                    subKey = "billList";
+                  } else if (item.href === "/admin/transactions") {
+                    sectionKey = "companyBilling";
+                    subKey = "billList";
+                  } else if (item.href === "/admin/visitors") {
+                    sectionKey = "members";
+                    subKey = "memberList";
+                  } else if (item.href === "/admin/overtime") {
+                    sectionKey = "bookings";
+                    subKey = "overtimeCharges";
+                  } else if (item.href === "/admin/promotions") {
+                    sectionKey = "couponsOffers";
+                    subKey = "coupons";
+                  } else if (item.href === "/admin/visitor-coins") {
+                    sectionKey = "visitorCoins";
+                    subKey = "visitorCoinBalance";
+                  } else if (item.href === "/admin/access-control") {
+                    sectionKey = "accessControl";
+                  } else if (item.href === "/admin/settings") {
+                    sectionKey = "settings";
+                    subKey = "generalSettings";
+                  }
+
+                  if (!sectionKey) return true;
+
+                  const perm = profile.permissions?.find((p: any) => p.section === sectionKey);
+                  if (!perm) return false;
+
+                  if (subKey) {
+                    const subSectionsObj = perm.subSections instanceof Map
+                      ? Object.fromEntries(perm.subSections)
+                      : perm.subSections || {};
+                    const subPerm = subSectionsObj[subKey];
+                    if (!subPerm || !subPerm.view) return false;
+                  } else {
+                    if (sectionKey === "bookings") {
+                      const subSectionsObj = perm.subSections instanceof Map
+                        ? Object.fromEntries(perm.subSections)
+                        : perm.subSections || {};
+                      const anySubView = Object.values(subSectionsObj).some((sub: any) => sub?.view);
+                      if (!anySubView) return false;
+                    } else {
+                      if (!perm.view) return false;
+                    }
+                  }
+
+                  return true;
+                }).map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setOpen(false)}
+                      className="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-black text-[var(--primary)] transition hover:bg-gray-100"
+                    >
+                      <Icon size={20} />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </nav>
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="mt-auto flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm font-black text-red-500 transition hover:bg-gray-100 text-left"
+              >
+                <LogOut size={20} />
+                Logout
+              </button>
+            </aside>
           </div>
         )}
 

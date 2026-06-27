@@ -16,9 +16,14 @@ function parseDateTime(dateStr: string, timeStr: string, addDays: number = 0) {
 }
 
 async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd: Date, excludeBookingId?: string) {
-  const courts = await Court.find({ gameId, active: true, disabled: false }).lean();
+  const courts = await Court.find({ gameId, active: true }).lean();
   if (courts.length === 0) {
     return { available: false, reason: "No courts configured for this game" };
+  }
+
+  let existingBooking: any = null;
+  if (excludeBookingId && mongoose.Types.ObjectId.isValid(excludeBookingId)) {
+    existingBooking = await Booking.findById(excludeBookingId).lean();
   }
 
   const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
@@ -31,7 +36,8 @@ async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd:
     $or: [
       { paymentStatus: "PAID" },
       { paymentMethod: "PAY_AT_COUNTER" },
-      { paymentStatus: "PENDING", createdAt: { $gte: tenMinutesAgo } }
+      { paymentStatus: "PENDING", createdAt: { $gte: tenMinutesAgo } },
+      { paymentStatus: "PENDING", intentExpiresAt: { $gt: new Date() } }
     ]
   };
 
@@ -44,14 +50,22 @@ async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd:
   const overlappingBlocks = await CourtBlock.find({
     gameId,
     status: { $in: ["ACTIVE", "SCHEDULED"] },
-    $or: [
-      { blockedFrom: { $lt: bookingEnd }, blockedTo: { $gt: bookingStart } }
-    ]
+    blockedFrom: { $lt: bookingEnd },
+    blockedTo: { $gt: bookingStart }
   }).lean();
 
   for (const court of courts) {
-    const isBooked = overlappingBookings.some((b) => b.court === court.name);
-    const isBlocked = overlappingBlocks.some((bl) => bl.courtId.toString() === court._id.toString());
+    const isBooked = overlappingBookings.some((b) => b.court?.toLowerCase() === court.name.toLowerCase());
+    
+    const isBlocked = overlappingBlocks.some((bl) => {
+      if (bl.courtId.toString() !== court._id.toString()) return false;
+      if (bl.keepExistingBookings) {
+        if (existingBooking && new Date(existingBooking.createdAt) < new Date(bl.createdAt)) {
+          return false; // ignore block
+        }
+      }
+      return true;
+    });
 
     if (!isBooked && !isBlocked) {
       return { available: true, courtName: court.name };

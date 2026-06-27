@@ -101,6 +101,14 @@ const SECTIONS_CONFIG = [
     ],
   },
   {
+    key: "passes",
+    label: "Passes",
+    subSections: [
+      { key: "viewPasses", label: "View Passes" },
+      { key: "createPasses", label: "Create Passes" },
+    ],
+  },
+  {
     key: "companies",
     label: "Companies",
     subSections: [
@@ -257,9 +265,14 @@ export default function AccessControlPage() {
         const dbSub = dbPerm?.subSections?.[sub.key] || (dbPerm?.subSections as any)?.get?.(sub.key) || { view: false, edit: false };
         subs[sub.key] = { view: !!dbSub.view, edit: !!dbSub.edit };
       });
+
+      const hasSubs = sec.subSections.length > 0;
+      const derivedView = hasSubs ? Object.values(subs).some((s: any) => s.view) : !!dbPerm?.view;
+      const derivedEdit = hasSubs ? Object.values(subs).some((s: any) => s.edit) : !!dbPerm?.edit;
+
       updatedPerms[sec.key] = {
-        view: !!dbPerm?.view,
-        edit: !!dbPerm?.edit,
+        view: derivedView,
+        edit: derivedEdit,
         subSections: subs,
       };
     });
@@ -357,20 +370,17 @@ export default function AccessControlPage() {
   }
 
   const toggleSectionView = (sectionKey: string) => {
-    setPermissions((prev) => {
-      const current = prev[sectionKey];
-      const nextView = !current.view;
-      // If view is disabled, edit must be disabled too
-      const nextEdit = nextView ? current.edit : false;
+    const sec = SECTIONS_CONFIG.find((s) => s.key === sectionKey);
+    if (sec && sec.subSections.length > 0) {
+      // Expanding section instead of granting access directly
+      setExpandedSections((prev) => ({ ...prev, [sectionKey]: true }));
+      return;
+    }
 
-      // Update all subsections
-      const updatedSubs = { ...current.subSections };
-      Object.keys(updatedSubs).forEach((subKey) => {
-        updatedSubs[subKey] = {
-          view: nextView ? updatedSubs[subKey].view : false,
-          edit: nextView ? updatedSubs[subKey].edit : false,
-        };
-      });
+    setPermissions((prev) => {
+      const current = prev[sectionKey] || { view: false, edit: false, subSections: {} };
+      const nextView = !current.view;
+      const nextEdit = nextView ? current.edit : false;
 
       return {
         ...prev,
@@ -378,28 +388,23 @@ export default function AccessControlPage() {
           ...current,
           view: nextView,
           edit: nextEdit,
-          subSections: updatedSubs,
         },
       };
     });
   };
 
   const toggleSectionEdit = (sectionKey: string) => {
-    setPermissions((prev) => {
-      const current = prev[sectionKey];
-      const nextEdit = !current.edit;
-      // If edit is enabled, view must be enabled too
-      const nextView = nextEdit ? true : current.view;
+    const sec = SECTIONS_CONFIG.find((s) => s.key === sectionKey);
+    if (sec && sec.subSections.length > 0) {
+      // Expanding section instead of granting access directly
+      setExpandedSections((prev) => ({ ...prev, [sectionKey]: true }));
+      return;
+    }
 
-      // Update all subsections
-      const updatedSubs = { ...current.subSections };
-      Object.keys(updatedSubs).forEach((subKey) => {
-        updatedSubs[subKey] = {
-          ...updatedSubs[subKey],
-          view: nextView ? updatedSubs[subKey].view : false,
-          edit: nextEdit ? true : updatedSubs[subKey].edit,
-        };
-      });
+    setPermissions((prev) => {
+      const current = prev[sectionKey] || { view: false, edit: false, subSections: {} };
+      const nextEdit = !current.edit;
+      const nextView = nextEdit ? true : current.view;
 
       return {
         ...prev,
@@ -407,7 +412,6 @@ export default function AccessControlPage() {
           ...current,
           view: nextView,
           edit: nextEdit,
-          subSections: updatedSubs,
         },
       };
     });
@@ -415,38 +419,18 @@ export default function AccessControlPage() {
 
   const toggleSubSectionView = (sectionKey: string, subKey: string) => {
     setPermissions((prev) => {
-      const current = prev[sectionKey];
-      const sub = current.subSections[subKey];
+      const current = prev[sectionKey] || { view: false, edit: false, subSections: {} };
+      const sub = current.subSections[subKey] || { view: false, edit: false };
       const nextView = !sub.view;
       const nextEdit = nextView ? sub.edit : false;
 
-      // If any sub-section view is enabled, main section view must be enabled
-      const mainView = nextView ? true : current.view;
-
-      return {
-        ...prev,
-        [sectionKey]: {
-          ...current,
-          view: mainView,
-          subSections: {
-            ...current.subSections,
-            [subKey]: { view: nextView, edit: nextEdit },
-          },
-        },
+      const updatedSubs = {
+        ...current.subSections,
+        [subKey]: { view: nextView, edit: nextEdit },
       };
-    });
-  };
 
-  const toggleSubSectionEdit = (sectionKey: string, subKey: string) => {
-    setPermissions((prev) => {
-      const current = prev[sectionKey];
-      const sub = current.subSections[subKey];
-      const nextEdit = !sub.edit;
-      const nextView = nextEdit ? true : sub.view;
-
-      // If any sub-section edit/view is enabled, main section edit/view must update
-      const mainView = nextView ? true : current.view;
-      const mainEdit = nextEdit ? true : current.edit;
+      const mainView = Object.values(updatedSubs).some((s: any) => s.view);
+      const mainEdit = Object.values(updatedSubs).some((s: any) => s.edit);
 
       return {
         ...prev,
@@ -454,10 +438,34 @@ export default function AccessControlPage() {
           ...current,
           view: mainView,
           edit: mainEdit,
-          subSections: {
-            ...current.subSections,
-            [subKey]: { view: nextView, edit: nextEdit },
-          },
+          subSections: updatedSubs,
+        },
+      };
+    });
+  };
+
+  const toggleSubSectionEdit = (sectionKey: string, subKey: string) => {
+    setPermissions((prev) => {
+      const current = prev[sectionKey] || { view: false, edit: false, subSections: {} };
+      const sub = current.subSections[subKey] || { view: false, edit: false };
+      const nextEdit = !sub.edit;
+      const nextView = nextEdit ? true : sub.view;
+
+      const updatedSubs = {
+        ...current.subSections,
+        [subKey]: { view: nextView, edit: nextEdit },
+      };
+
+      const mainView = Object.values(updatedSubs).some((s: any) => s.view);
+      const mainEdit = Object.values(updatedSubs).some((s: any) => s.edit);
+
+      return {
+        ...prev,
+        [sectionKey]: {
+          ...current,
+          view: mainView,
+          edit: mainEdit,
+          subSections: updatedSubs,
         },
       };
     });

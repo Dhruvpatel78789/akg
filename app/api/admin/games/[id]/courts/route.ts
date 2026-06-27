@@ -4,6 +4,7 @@ import { connectDB } from "@/lib/mongodb";
 import { requireAdmin } from "@/lib/admin-auth";
 import { Court } from "@/models/court";
 import { Game } from "@/models/Game";
+import { CourtBlock } from "@/models/CourtBlock";
 
 const schema = z.object({
   name: z.string().min(1),
@@ -19,7 +20,20 @@ export async function GET(
 
   const courts = await Court.find({ gameId: id }).sort({ createdAt: 1 }).lean();
 
-  return NextResponse.json({ courts });
+  const courtIds = courts.map((c) => c._id);
+  const blocks = await CourtBlock.find({
+    courtId: { $in: courtIds },
+    status: { $in: ["ACTIVE", "SCHEDULED"] },
+  })
+    .sort({ blockedFrom: 1 })
+    .lean();
+
+  const courtsWithBlocks = courts.map((court) => ({
+    ...court,
+    blocks: blocks.filter((b) => b.courtId.toString() === court._id.toString()),
+  }));
+
+  return NextResponse.json({ courts: courtsWithBlocks });
 }
 
 export async function POST(

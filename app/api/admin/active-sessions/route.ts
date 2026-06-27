@@ -11,7 +11,7 @@ import { processOvertimeAndExit } from "@/lib/overtime-calculator";
 export async function GET() {
   try {
     await connectDB();
-    const admin = await requireAdmin();
+    const admin = await requireAdmin("bookings", "ongoingSessions", false);
     if (admin.error) return admin.error;
 
     const activeSessions = await Booking.find({
@@ -34,7 +34,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     await connectDB();
-    const admin = await requireAdmin();
+    const admin = await requireAdmin("bookings", "ongoingSessions", true);
     if (admin.error) return admin.error;
 
     const body = await request.json();

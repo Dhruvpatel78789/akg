@@ -20,6 +20,26 @@ export default function BookingIntentPaymentPage() {
 
   const [payAtCounterWindow, setPayAtCounterWindow] = useState(30);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<"RAZORPAY" | "PAY_AT_COUNTER">("RAZORPAY");
+  const [hasAutoPaid, setHasAutoPaid] = useState(false);
+
+  useEffect(() => {
+    const autoPay = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("autoPay") === "true" : false;
+    if (autoPay && !loading && !hasAutoPaid && intent?.razorpayOrderId) {
+      setHasAutoPaid(true);
+      const timer = setTimeout(() => {
+        if (typeof window !== "undefined" && (window as any).Razorpay) {
+          handlePayment();
+        } else {
+          setTimeout(() => {
+            if (typeof window !== "undefined" && (window as any).Razorpay) {
+              handlePayment();
+            }
+          }, 500);
+        }
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, intent, hasAutoPaid]);
 
   // Load Settings
   useEffect(() => {
@@ -185,13 +205,18 @@ export default function BookingIntentPaymentPage() {
   }, [intent, isExpired, paymentSuccess]);
 
   // Handle Pay Trigger
-  const handlePayment = async () => {
+  const handlePayment = async (method: "RAZORPAY" | "PAY_AT_COUNTER" = "RAZORPAY") => {
     if (!intent) return;
+    if (isExpired) {
+      setError("This booking session has expired. Please create a new booking.");
+      return;
+    }
     setPaying(true);
     setError("");
+    setSelectedPaymentMethod(method);
 
     try {
-      if (selectedPaymentMethod === "PAY_AT_COUNTER") {
+      if (method === "PAY_AT_COUNTER") {
         const res = await fetch(`/api/public/booking-intents/${id}/pay-at-counter`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -340,13 +365,13 @@ export default function BookingIntentPaymentPage() {
             </div>
             <h2 className="text-2xl font-black text-red-500">Slot Expired</h2>
             <p className="text-sm font-bold text-gray-500 px-4">
-              This booking request has expired because payment was not completed within the 15-minute reservation window. Please request a new slot.
+              This booking session has expired. Please create a new booking.
             </p>
             <button
               onClick={() => router.push("/")}
               className="mt-6 h-12 w-full rounded-full bg-gray-100 hover:bg-gray-200 text-xs font-black text-gray-700 transition"
             >
-              Back to Home
+              Create New Booking
             </button>
           </div>
         ) : (
@@ -456,87 +481,38 @@ export default function BookingIntentPaymentPage() {
 
             {/* Countdown Badge */}
             {timeLeft && (
-              <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 flex justify-between items-center text-xs font-bold text-amber-800">
-                <span>Reservation holds for:</span>
-                <span className="bg-amber-100 px-2 py-0.5 rounded text-amber-900 font-mono font-black">{timeLeft}</span>
-              </div>
-            )}
-
-            {/* Payment Option Selection Toggle */}
-            {isPayAtCounterAllowed && (
-              <div className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-black/5 space-y-3 text-left">
-                <p className="text-xs font-black uppercase text-[var(--text-muted)] tracking-wider">
-                  Select Payment Option
-                </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPaymentMethod("RAZORPAY")}
-                    className={`h-12 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 border ${
-                      selectedPaymentMethod === "RAZORPAY"
-                        ? "bg-[var(--primary)] text-white border-[var(--primary)] shadow-sm"
-                        : "bg-gray-50 text-[var(--primary)] border-black/5 hover:bg-gray-100"
-                    }`}
-                  >
-                    Pay Online
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPaymentMethod("PAY_AT_COUNTER")}
-                    className={`h-12 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 border ${
-                      selectedPaymentMethod === "PAY_AT_COUNTER"
-                        ? "bg-[var(--primary)] text-white border-[var(--primary)] shadow-sm"
-                        : "bg-gray-50 text-[var(--primary)] border-black/5 hover:bg-gray-100"
-                    }`}
-                  >
-                    Pay at Counter
-                  </button>
+              <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 flex flex-col gap-2 text-xs font-bold text-amber-800 text-left">
+                <span className="font-semibold text-center">Complete your payment within 10 minutes to confirm your booking.</span>
+                <div className="flex justify-between items-center mt-1">
+                  <span>Reservation holds for:</span>
+                  <span className="bg-amber-100 px-2 py-0.5 rounded text-amber-900 font-mono font-black">{timeLeft}</span>
                 </div>
-              </div>
-            )}
-
-            {/* Information Card based on Payment Mode */}
-            {selectedPaymentMethod === "PAY_AT_COUNTER" ? (
-              <div className="rounded-[2rem] bg-amber-50 p-5 text-center space-y-3 border border-amber-100 text-amber-900 text-left">
-                <div className="flex justify-center">
-                  <Clock size={32} />
-                </div>
-                <h3 className="text-sm font-black text-center">
-                  Pay at Counter Requested
-                </h3>
-                <p className="text-xs font-semibold leading-relaxed">
-                  Your reservation will be held. Please pay at the zone counter prior to checking in. Staff will activate your session once payment is received.
-                </p>
-              </div>
-            ) : (
-              <div className="rounded-[2rem] bg-[#EDEBE2] p-5 text-center space-y-3">
-                <div className="flex justify-center text-[var(--primary)]">
-                  <CreditCard size={32} />
-                </div>
-                <h3 className="text-sm font-black text-[var(--primary)]">
-                  Secure Test Gateway Enabled
-                </h3>
-                <p className="text-xs font-semibold text-[var(--text-muted)] leading-relaxed">
-                  Clicking Make Payment will simulate a successful Razorpay callback and immediately activate your membership or secure your booking.
-                </p>
               </div>
             )}
 
             {error && <p className="text-xs font-black text-red-500 bg-red-50 p-2 rounded-lg">{error}</p>}
 
-            <button
-              onClick={handlePayment}
-              disabled={paying}
-              className="h-16 w-full rounded-full bg-[var(--primary)] hover:opacity-95 active:scale-95 text-base font-black text-white transition shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              {paying ? (
-                <span>Processing Order...</span>
-              ) : selectedPaymentMethod === "PAY_AT_COUNTER" ? (
-                <span>Confirm & Reserve Slot</span>
-              ) : (
-                <span>Pay ₹{intent.price}</span>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => handlePayment("RAZORPAY")}
+                disabled={paying}
+                className="h-16 w-full rounded-full bg-[var(--primary)] hover:opacity-95 active:scale-95 text-base font-black text-white transition shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <ShieldCheck size={20} />
+                <span>{paying && selectedPaymentMethod === "RAZORPAY" ? "Processing..." : `Pay Online (₹${intent.price})`}</span>
+              </button>
+
+              {isPayAtCounterAllowed && (
+                <button
+                  onClick={() => handlePayment("PAY_AT_COUNTER")}
+                  disabled={paying}
+                  className="h-16 w-full rounded-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-base font-black text-white transition shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <Clock size={20} />
+                  <span>{paying && selectedPaymentMethod === "PAY_AT_COUNTER" ? "Reserving..." : "Pay at Counter"}</span>
+                </button>
               )}
-            </button>
+            </div>
 
             <div className="flex items-center justify-center gap-1.5 text-[10px] font-bold text-gray-400">
               <ShieldCheck size={14} className="text-emerald-500" />

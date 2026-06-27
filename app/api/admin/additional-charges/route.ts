@@ -10,7 +10,7 @@ import { SessionEntry } from "@/models/SessionEntry";
 export async function GET() {
   try {
     await connectDB();
-    const admin = await requireAdmin();
+    const admin = await requireAdmin("bookings", "overtimeCharges", false);
     if (admin.error) return admin.error;
 
     // Recalculate any pending/awaiting settlement overtime charges using the new pro-rata formula
@@ -69,7 +69,7 @@ export async function GET() {
 export async function PATCH(request: Request) {
   try {
     await connectDB();
-    const admin = await requireAdmin();
+    const admin = await requireAdmin("bookings", "overtimeCharges", true);
     if (admin.error) return admin.error;
 
     const body = await request.json();

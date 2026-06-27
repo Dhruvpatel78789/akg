@@ -22,6 +22,7 @@ type Game = {
   maximumDuration: number;
   bufferMinutes: number;
   fixedSlotBooking?: boolean;
+  allowCourtSelection?: boolean;
   active: boolean;
 };
 
@@ -30,6 +31,7 @@ type Court = {
   name: string;
   active: boolean;
   disabled: boolean;
+  blocks?: any[];
 };
 
 type PricingRule = {
@@ -62,6 +64,7 @@ export default function AdminGamesPage() {
     maximumDuration: 180,
     bufferMinutes: 10,
     fixedSlotBooking: false,
+    allowCourtSelection: false,
   });
 
   const [editGame, setEditGame] = useState({
@@ -70,6 +73,7 @@ export default function AdminGamesPage() {
     maximumDuration: 180,
     bufferMinutes: 10,
     fixedSlotBooking: false,
+    allowCourtSelection: false,
     active: true,
   });
 
@@ -183,6 +187,7 @@ function getApiErrors(data: any) {
       maximumDuration: game.maximumDuration,
       bufferMinutes: game.bufferMinutes || 0,
       fixedSlotBooking: game.fixedSlotBooking || false,
+      allowCourtSelection: game.allowCourtSelection || false,
       active: game.active,
     });
 
@@ -219,6 +224,7 @@ function getApiErrors(data: any) {
       maximumDuration: 180,
       bufferMinutes: 10,
       fixedSlotBooking: false,
+      allowCourtSelection: false,
     });
 
     setMessage("Game created");
@@ -275,7 +281,7 @@ function getApiErrors(data: any) {
     loadGameDetails(selectedGame._id);
   }
 
-  async function blockCourt() {
+  async function blockCourt(overrideMode?: "KEEP" | "OVERRIDE") {
     if (!selectedGame || !courtBlockModal) return;
 
     const response = await fetch(
@@ -285,18 +291,33 @@ function getApiErrors(data: any) {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(courtBlockForm),
+        body: JSON.stringify({ ...courtBlockForm, overrideMode }),
       }
     );
 
     const data = await safeJson(response);
 
-    if (!response.ok) {
-      setMessage(data?.message || "Failed to disable court");
+    if (response.ok && data?.hasBookings) {
+      // Prompt option A or option B selection
+      const choice = window.confirm(
+        `${data.message}\n\nClick OK to Keep existing bookings and block only for new bookings (Option A).\nClick Cancel to Override existing bookings and mark them as Reschedule Required (Option B).`
+      );
+      if (choice) {
+        // Option A
+        await blockCourt("KEEP");
+      } else {
+        // Option B
+        await blockCourt("OVERRIDE");
+      }
       return;
     }
 
-    setMessage(data?.message || "Court disabled");
+    if (!response.ok) {
+      setMessage(data?.message || "Failed to block court");
+      return;
+    }
+
+    setMessage(data?.message || "Court block scheduled");
 
     setCourtBlockModal(null);
     setCourtBlockForm({
@@ -305,6 +326,67 @@ function getApiErrors(data: any) {
       reason: "",
     });
 
+    loadGameDetails(selectedGame._id);
+  }
+
+  async function toggleCourtPermanent(courtId: string, isCurrentlyDisabled: boolean, overrideMode?: "KEEP" | "OVERRIDE") {
+    if (!selectedGame) return;
+
+    const actionText = isCurrentlyDisabled ? "enable" : "permanently disable";
+    if (!overrideMode) {
+      const confirmed = window.confirm(`Are you sure you want to ${actionText} this court?`);
+      if (!confirmed) return;
+    }
+
+    const response = await fetch(`/api/admin/courts/${courtId}/disable`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ disabled: !isCurrentlyDisabled, overrideMode }),
+    });
+
+    const data = await safeJson(response);
+
+    if (response.ok && data?.hasBookings) {
+      const choice = window.confirm(
+        `${data.message}\n\nClick OK to Keep existing bookings and disable court only for new bookings (Option A).\nClick Cancel to Override existing bookings and mark them as Reschedule Required (Option B).`
+      );
+      if (choice) {
+        await toggleCourtPermanent(courtId, isCurrentlyDisabled, "KEEP");
+      } else {
+        await toggleCourtPermanent(courtId, isCurrentlyDisabled, "OVERRIDE");
+      }
+      return;
+    }
+
+    if (!response.ok) {
+      setMessage(data?.message || `Failed to ${actionText} court`);
+      return;
+    }
+
+    setMessage(`Court ${isCurrentlyDisabled ? "enabled" : "disabled permanently"}`);
+    loadGameDetails(selectedGame._id);
+  }
+
+  async function cancelCourtBlock(blockId: string) {
+    if (!selectedGame) return;
+
+    const confirmed = window.confirm("Cancel this scheduled court block?");
+    if (!confirmed) return;
+
+    const response = await fetch(`/api/admin/court-blocks/${blockId}`, {
+      method: "DELETE",
+    });
+
+    const data = await safeJson(response);
+
+    if (!response.ok) {
+      setMessage(data?.message || "Failed to cancel scheduled block");
+      return;
+    }
+
+    setMessage("Scheduled block cancelled successfully");
     loadGameDetails(selectedGame._id);
   }
 
@@ -540,6 +622,23 @@ function getApiErrors(data: any) {
                 </span>
               </label>
 
+              <label className="flex items-center gap-2 cursor-pointer mt-1">
+                <input
+                  type="checkbox"
+                  checked={gameForm.allowCourtSelection}
+                  onChange={(event) =>
+                    setGameForm((prev) => ({
+                      ...prev,
+                      allowCourtSelection: event.target.checked,
+                    }))
+                  }
+                  className="rounded border-gray-300 text-[var(--primary)] focus:ring-[var(--primary)] h-4 w-4"
+                />
+                <span className="text-xs font-black uppercase text-[var(--text-muted)] select-none">
+                  Allow Court Selection
+                </span>
+              </label>
+
               <button className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] text-sm font-black text-white">
                 <Plus size={18} className="text-[#D7E528]" />
                 Create Game
@@ -657,6 +756,23 @@ function getApiErrors(data: any) {
                   </span>
                 </label>
 
+                <label className="flex items-center gap-2 cursor-pointer mt-1 md:col-span-2 xl:col-span-6">
+                  <input
+                    type="checkbox"
+                    checked={editGame.allowCourtSelection}
+                    onChange={(event) =>
+                      setEditGame((prev) => ({
+                        ...prev,
+                        allowCourtSelection: event.target.checked,
+                      }))
+                    }
+                    className="rounded border-gray-300 text-[var(--primary)] focus:ring-[var(--primary)] h-4 w-4"
+                  />
+                  <span className="text-xs font-black uppercase text-[var(--text-muted)] select-none">
+                    Allow Court Selection
+                  </span>
+                </label>
+
                 <button className="h-12 rounded-2xl bg-[var(--primary)] text-sm font-black text-white md:col-span-2 xl:col-span-6">
                   Save Game Changes
                 </button>
@@ -703,50 +819,112 @@ function getApiErrors(data: any) {
               </form>
             </div>
 
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {courts.map((court) => (
-                <article
-                  key={court._id}
-                  className={`rounded-[1.5rem] p-4 ring-1 ring-black/5 ${
-                    court.disabled
-                      ? "bg-gray-100/80 text-gray-500"
-                      : "bg-white/50"
-                  }`}
-                >
-                  <h3 className="text-lg font-black text-[var(--primary)]">
-                    {court.name}
-                  </h3>
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {courts.map((court) => {
+                const now = new Date();
+                const isCurrentlyBlocked = court.blocks && court.blocks.some((b: any) => {
+                  const start = new Date(b.blockedFrom);
+                  const end = new Date(b.blockedTo);
+                  return now >= start && now <= end;
+                });
+                
+                const statusText = court.disabled 
+                  ? "Permanently Disabled" 
+                  : isCurrentlyBlocked 
+                    ? "Temporarily Blocked" 
+                    : "Active";
 
-                  <p className="mt-1 text-xs font-black uppercase text-[var(--text-muted)]">
-                    {court.disabled ? "Disabled" : "Active"}
-                  </p>
+                const statusColor = court.disabled
+                  ? "bg-rose-100 text-rose-800"
+                  : isCurrentlyBlocked
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-emerald-100 text-emerald-800";
 
-                  <div className="mt-5 flex justify-end gap-2 border-t border-black/5 pt-4">
-                    <button
-                      type="button"
-                      onClick={() => deleteCourt(court._id)}
-                      className="flex h-10 w-10 items-center justify-center rounded-full bg-[#F6401E] text-white"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                return (
+                  <article
+                    key={court._id}
+                    className={`rounded-[1.5rem] p-5 ring-1 ring-black/5 flex flex-col justify-between ${
+                      court.disabled ? "bg-gray-100/80 text-gray-500" : "bg-white"
+                    }`}
+                  >
+                    <div>
+                      <div className="flex justify-between items-start gap-2">
+                        <h3 className="text-base font-black text-[var(--primary)]">
+                          {court.name}
+                        </h3>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wider ${statusColor}`}>
+                          {statusText}
+                        </span>
+                      </div>
 
-                    <button
-                      type="button"
-                      disabled={court.disabled}
-                      onClick={() =>
-                        setCourtBlockModal({
-                          courtId: court._id,
-                          courtName: court.name,
-                        })
-                      }
-                      className="flex h-10 items-center gap-1 rounded-full bg-gray-200 px-4 text-xs font-black text-[var(--primary)] disabled:opacity-50"
-                    >
-                      <ShieldAlert size={14} />
-                      {court.disabled ? "Disabled" : "Disable"}
-                    </button>
-                  </div>
-                </article>
-              ))}
+                      {court.blocks && court.blocks.length > 0 && (
+                        <div className="mt-4 space-y-2 border-t border-black/5 pt-3">
+                          <p className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Scheduled Blocks:</p>
+                          <div className="max-h-[150px] overflow-y-auto space-y-1.5 pr-1">
+                            {court.blocks.map((block: any) => (
+                              <div key={block._id} className="flex items-center justify-between bg-amber-50 p-2 rounded-xl border border-amber-100 text-[11px] text-amber-900">
+                                <div className="space-y-0.5">
+                                  <p className="font-bold">
+                                    {new Date(block.blockedFrom).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}{" "}
+                                    {new Date(block.blockedFrom).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}{" - "}
+                                    {new Date(block.blockedTo).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                                  </p>
+                                  {block.reason && <p className="text-amber-700 font-medium italic">Reason: {block.reason}</p>}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => cancelCourtBlock(block._id)}
+                                  className="text-[10px] font-black text-rose-600 hover:text-rose-700 active:scale-95 transition-all ml-2"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-5 flex flex-wrap gap-2 border-t border-black/5 pt-4 justify-between items-center">
+                      <button
+                        type="button"
+                        onClick={() => deleteCourt(court._id)}
+                        className="flex h-9 w-9 items-center justify-center rounded-full bg-rose-600 text-white hover:bg-rose-700 active:scale-95 transition-all"
+                        title="Delete Permanently"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => toggleCourtPermanent(court._id, !!court.disabled)}
+                          className={`h-9 px-3.5 rounded-full text-[11px] font-black active:scale-95 transition-all ${
+                            court.disabled
+                              ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                              : "bg-rose-550 bg-rose-600 text-white hover:bg-rose-750"
+                          }`}
+                        >
+                          {court.disabled ? "Enable Court" : "Disable Permanently"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setCourtBlockModal({
+                              courtId: court._id,
+                              courtName: court.name,
+                            })
+                          }
+                          className="h-9 px-3.5 rounded-full bg-gray-100 text-[11px] font-black text-[var(--primary)] hover:bg-gray-200 active:scale-95 transition-all"
+                        >
+                          Schedule Block
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
 
               {courts.length === 0 && (
                 <p className="text-sm font-bold text-[var(--text-muted)]">
@@ -1248,7 +1426,7 @@ function getApiErrors(data: any) {
 
                 <button
                   type="button"
-                  onClick={blockCourt}
+                  onClick={() => blockCourt()}
                   className="h-12 rounded-2xl bg-[var(--primary)] text-sm font-black text-white"
                 >
                   Disable Court

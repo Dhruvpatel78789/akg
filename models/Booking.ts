@@ -66,9 +66,15 @@ const BookingSchema = new Schema(
     forceEnded: { type: Boolean, default: false },
     forceEndReason: { type: String },
     forceEndedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    intentCreatedAt: { type: Date },
+    intentExpiresAt: { type: Date },
+    rescheduleRequired: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
+
+BookingSchema.index({ gameId: 1, status: 1, softDeleted: 1, startTime: 1, endTime: 1 });
+BookingSchema.index({ userId: 1 });
 
 BookingSchema.pre("save", async function () {
   const doc = this as any;

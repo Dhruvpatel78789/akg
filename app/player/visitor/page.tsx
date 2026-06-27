@@ -28,6 +28,7 @@ export default function VisitorBookingPage() {
   const [selectedGameId, setSelectedGameId] = useState("");
   const [date, setDate] = useState("");
   const [startTime, setStartTime] = useState("");
+  const [isTimeChangedByUser, setIsTimeChangedByUser] = useState(false);
   const [duration, setDuration] = useState(60);
   const [playersCount, setPlayersCount] = useState(1);
 
@@ -45,6 +46,16 @@ export default function VisitorBookingPage() {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Synchronize startTime live to the current time if not manually changed by the user, and the selected date is today
+  useEffect(() => {
+    if (isTimeChangedByUser) return;
+    const todayStr = formatToISTDate(currentTime);
+    if (date === todayStr) {
+      const nowStr = `${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}`;
+      setStartTime(nowStr);
+    }
+  }, [currentTime, date, isTimeChangedByUser]);
 
   const isPastTime = useMemo(() => {
     if (!date || !startTime) return false;
@@ -120,6 +131,13 @@ export default function VisitorBookingPage() {
   const [submitting, setSubmitting] = useState(false);
   const [available, setAvailable] = useState<boolean | null>(null);
 
+  // Suggested Slots and Court Selection
+  const [suggestedSlots, setSuggestedSlots] = useState<string[]>([]);
+  const [allowCourtSelection, setAllowCourtSelection] = useState(false);
+  const [availableCourts, setAvailableCourts] = useState<string[]>([]);
+  const [selectedCourt, setSelectedCourt] = useState("");
+
+
   useEffect(() => {
     if (!name) {
       setValidationError("Name is required");
@@ -141,10 +159,16 @@ export default function VisitorBookingPage() {
         return;
       }
     }
-    if (isPastTime) {
-      setValidationError("Cannot book a slot in the past. Please select a future date and time.");
-      return;
+    
+    // Strict real-time check using current millisecond timestamp
+    if (date && startTime) {
+      const bookingStart = parseIST(date, startTime);
+      if (bookingStart.getTime() < currentTime.getTime()) {
+        setValidationError("Cannot book a slot in the past. Please select a future date and time.");
+        return;
+      }
     }
+
     if (selectedGame) {
       const min = selectedGame.duration;
       const max = selectedGame.maximumDuration;
@@ -162,7 +186,7 @@ export default function VisitorBookingPage() {
       return;
     }
     setValidationError("");
-  }, [name, phone, email, isPastTime, selectedGame, duration, playersCount]);
+  }, [name, phone, email, date, startTime, currentTime, selectedGame, duration, playersCount]);
 
   // Load games
   useEffect(() => {
@@ -294,13 +318,25 @@ export default function VisitorBookingPage() {
         if (data.success) {
           setAvailable(data.available);
           setPrice(data.coinCost);
+          setAllowCourtSelection(data.allowCourtSelection || false);
+          setAvailableCourts(data.availableCourts || []);
           if (data.available === false) {
             setError(data.reason || "Slot is fully booked");
+            setSuggestedSlots(data.suggestedSlots || []);
+          } else {
+            setSuggestedSlots([]);
+            if (data.availableCourts && data.availableCourts.length > 0) {
+              if (!selectedCourt || !data.availableCourts.includes(selectedCourt)) {
+                setSelectedCourt(data.availableCourts[0]);
+              }
+            }
           }
         } else {
           setError(data.message || "Pricing not available");
           setPrice(null);
           setAvailable(null);
+          setSuggestedSlots([]);
+          setAvailableCourts([]);
         }
       })
       .catch((err) => {
@@ -309,6 +345,8 @@ export default function VisitorBookingPage() {
           setError("Error checking slot details");
           setPrice(null);
           setAvailable(null);
+          setSuggestedSlots([]);
+          setAvailableCourts([]);
         }
       });
 
@@ -330,9 +368,12 @@ export default function VisitorBookingPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (isPastTime) {
-      setError("Cannot book a slot in the past. Please select a future date and time.");
-      return;
+    if (date && startTime) {
+      const bookingStart = parseIST(date, startTime);
+      if (bookingStart.getTime() < Date.now()) {
+        setError("Cannot book a slot in the past. Please select a future date and time.");
+        return;
+      }
     }
     if (!name || !phone || !selectedGameId || !date || !startTime) {
       setError("Please fill all required fields");
@@ -372,6 +413,7 @@ export default function VisitorBookingPage() {
           startTime,
           durationMinutes: duration,
           playersCount,
+          court: selectedCourt || undefined,
         }),
       });
 
@@ -591,7 +633,10 @@ export default function VisitorBookingPage() {
                     <select
                       required
                       value={startTime}
-                      onChange={(e) => setStartTime(e.target.value)}
+                      onChange={(e) => {
+                        setStartTime(e.target.value);
+                        setIsTimeChangedByUser(true);
+                      }}
                       className="h-14 w-full rounded-2xl bg-[#EDEBE2] pl-5 pr-12 font-bold outline-none border-0 text-[var(--primary)] cursor-pointer appearance-none"
                     >
                       <option value="">Select Slot</option>
@@ -606,7 +651,10 @@ export default function VisitorBookingPage() {
                       type="time"
                       required
                       value={startTime}
-                      onChange={(e) => setStartTime(e.target.value)}
+                      onChange={(e) => {
+                        setStartTime(e.target.value);
+                        setIsTimeChangedByUser(true);
+                      }}
                       onClick={(e) => {
                         try {
                           e.currentTarget.showPicker();
@@ -672,6 +720,51 @@ export default function VisitorBookingPage() {
                 </button>
               </div>
             </div>
+
+            {/* Court Selection (Per Game Allow setting) */}
+            {allowCourtSelection && available === true && availableCourts.length > 0 && (
+              <div className="grid gap-1.5 border-t pt-4 border-gray-100 text-left">
+                <span className="text-xs font-black uppercase text-[var(--text-muted)] tracking-wider">Select Court</span>
+                <div className="flex flex-wrap gap-2.5">
+                  {availableCourts.map((court) => (
+                    <button
+                      key={court}
+                      type="button"
+                      onClick={() => setSelectedCourt(court)}
+                      className={`h-11 px-5 rounded-xl font-bold text-xs transition active:scale-95 ${
+                        selectedCourt === court
+                          ? "bg-[var(--primary)] text-white"
+                          : "bg-gray-100 text-[var(--primary)] hover:bg-gray-200"
+                      }`}
+                    >
+                      {court}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Smart Rescheduling / Nearest Slot Recommendations */}
+            {available === false && suggestedSlots.length > 0 && (
+              <div className="p-4 bg-amber-50 rounded-[1.5rem] border border-amber-100 text-left space-y-2 border-t pt-4">
+                <p className="text-xs font-black text-amber-900 uppercase tracking-wide">Recommended Slots</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {suggestedSlots.map((slot) => (
+                    <button
+                      key={slot}
+                      type="button"
+                      onClick={() => {
+                        setStartTime(slot);
+                        setIsTimeChangedByUser(true);
+                      }}
+                      className="h-10 rounded-xl bg-white border border-amber-200 hover:bg-amber-100/50 text-[11px] font-bold text-amber-900 transition"
+                    >
+                      {slot}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Pricing & Checkout Summary */}

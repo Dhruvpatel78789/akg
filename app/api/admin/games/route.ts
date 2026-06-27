@@ -10,6 +10,7 @@ const gameSchema = z.object({
   maximumDuration: z.number().min(1),
   bufferMinutes: z.number().min(0).default(0),
   fixedSlotBooking: z.boolean().optional(),
+  allowCourtSelection: z.boolean().optional(),
 });
 
 export async function GET() {

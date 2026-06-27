@@ -31,6 +31,7 @@ export default function CompanyBookingCreatePage() {
   const [selectedGameId, setSelectedGameId] = useState("");
   const [date, setDate] = useState("");
   const [startTime, setStartTime] = useState("");
+  const [isTimeChangedByUser, setIsTimeChangedByUser] = useState(false);
   const [duration, setDuration] = useState(60);
 
   // Co-players search and selection
@@ -47,6 +48,16 @@ export default function CompanyBookingCreatePage() {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Synchronize startTime live to the current time if not manually changed by the user, and the selected date is today
+  useEffect(() => {
+    if (isTimeChangedByUser) return;
+    const todayStr = formatToISTDate(currentTime);
+    if (date === todayStr) {
+      const nowStr = `${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}`;
+      setStartTime(nowStr);
+    }
+  }, [currentTime, date, isTimeChangedByUser]);
 
   const isPastTime = useMemo(() => {
     if (!date || !startTime) return false;
@@ -162,16 +173,10 @@ export default function CompanyBookingCreatePage() {
     loadGames();
   }, [router]);
 
-  // Set default date and start time on mount
+  // Set default date on mount
   useEffect(() => {
     const now = new Date();
     setDate(now.toLocaleDateString("en-CA"));
-    
-    // Add 15 mins to current time and format as HH:MM
-    const futureTime = new Date(now.getTime() + 15 * 60 * 1000);
-    setStartTime(
-      `${String(futureTime.getHours()).padStart(2, "0")}:${String(futureTime.getMinutes()).padStart(2, "0")}`
-    );
   }, []);
 
   // Calculate end time
@@ -391,7 +396,10 @@ export default function CompanyBookingCreatePage() {
                 {selectedGame?.fixedSlotBooking ? (
                   <select
                     value={startTime}
-                    onChange={(e) => setStartTime(e.target.value)}
+                    onChange={(e) => {
+                      setStartTime(e.target.value);
+                      setIsTimeChangedByUser(true);
+                    }}
                     required
                     className="h-14 w-full rounded-full bg-[var(--background)] pl-5 pr-12 font-bold outline-none ring-1 ring-black/5 appearance-none cursor-pointer"
                   >
@@ -406,7 +414,10 @@ export default function CompanyBookingCreatePage() {
                   <input
                     type="time"
                     value={startTime}
-                    onChange={(e) => setStartTime(e.target.value)}
+                    onChange={(e) => {
+                      setStartTime(e.target.value);
+                      setIsTimeChangedByUser(true);
+                    }}
                     required
                     className="h-14 w-full rounded-full bg-[var(--background)] pl-5 pr-12 font-bold outline-none ring-1 ring-black/5"
                   />

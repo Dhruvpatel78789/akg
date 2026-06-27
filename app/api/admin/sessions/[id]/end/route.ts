@@ -12,7 +12,7 @@ export async function POST(
 ) {
   try {
     await connectDB();
-    const admin = await requireAdmin();
+    const admin = await requireAdmin("bookings", "ongoingSessions", true);
     if (admin.error) return admin.error;
 
     const { id } = await params;

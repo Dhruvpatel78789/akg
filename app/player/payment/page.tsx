@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { ArrowLeft, Home, CreditCard, ShieldCheck, Clock } from "lucide-react";
+import { ArrowLeft, Home, CreditCard, ShieldCheck, Clock, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useMemo, Suspense } from "react";
@@ -58,6 +58,11 @@ function UnifiedPaymentForm() {
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState("");
 
+  // Countdown timer and booking details for checkout grace period
+  const [bookingDetails, setBookingDetails] = useState<any>(null);
+  const [isExpired, setIsExpired] = useState(false);
+  const [timeLeft, setTimeLeft] = useState("");
+
   // Pay at Counter Config
   const [payAtCounterWindow, setPayAtCounterWindow] = useState(30);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<"RAZORPAY" | "PAY_AT_COUNTER">("RAZORPAY");
@@ -90,6 +95,9 @@ function UnifiedPaymentForm() {
   const [promotions, setPromotions] = useState<any[]>([]);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [successBookingId, setSuccessBookingId] = useState("");
+  const [hasAutoPaid, setHasAutoPaid] = useState(false);
+
+
 
   const selectedGameName = useMemo(() => {
     return games.find((g) => g._id === gameId)?.name || "Sport Session";
@@ -125,6 +133,15 @@ function UnifiedPaymentForm() {
           if (res.ok && data.success) {
             setGames(data.games || []);
           }
+
+          if (bookingId) {
+            const bookingRes = await fetch(`/api/player/bookings/${bookingId}`);
+            const bookingData = await bookingRes.json();
+            if (bookingRes.ok && bookingData.success) {
+              setBookingDetails(bookingData.booking);
+              setIsExpired(bookingData.isExpired);
+            }
+          }
         }
       } catch (err) {
         console.error(err);
@@ -135,7 +152,7 @@ function UnifiedPaymentForm() {
     }
 
     loadData();
-  }, [type, planId]);
+  }, [type, planId, bookingId]);
 
   // Load promotions on init for displaying on payment success
   useEffect(() => {
@@ -199,6 +216,48 @@ function UnifiedPaymentForm() {
     return Math.max(0, amountToPay - discountAmount);
   }, [amountToPay, discountAmount]);
 
+  // Expiration timer logic
+  useEffect(() => {
+    if (!bookingDetails || isExpired || paymentSuccess) return;
+
+    const timer = setInterval(() => {
+      const now = new Date().getTime();
+      const expiry = new Date(bookingDetails.intentExpiresAt).getTime();
+      const diff = expiry - now;
+
+      if (diff <= 0) {
+        setIsExpired(true);
+        setTimeLeft("Expired");
+        clearInterval(timer);
+      } else {
+        const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const secs = Math.floor((diff % (1000 * 60)) / 1000);
+        setTimeLeft(`${mins}m ${secs}s`);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [bookingDetails, isExpired, paymentSuccess]);
+
+  useEffect(() => {
+    const autoPay = searchParams.get("autoPay") === "true";
+    if (autoPay && !loading && !hasAutoPaid && finalAmountToPay !== undefined) {
+      setHasAutoPaid(true);
+      const timer = setTimeout(() => {
+        if (typeof window !== "undefined" && (window as any).Razorpay) {
+          handlePayment();
+        } else {
+          setTimeout(() => {
+            if (typeof window !== "undefined" && (window as any).Razorpay) {
+              handlePayment();
+            }
+          }, 500);
+        }
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, finalAmountToPay, hasAutoPaid, searchParams]);
+
   async function handleApplyCoupon() {
     if (!couponCode.trim()) return;
     setCouponError("");
@@ -231,7 +290,8 @@ function UnifiedPaymentForm() {
     }
   }
 
-  async function finalizePayment(razorpayOrderId: string) {
+  async function finalizePayment(razorpayOrderId: string, method?: "RAZORPAY" | "PAY_AT_COUNTER") {
+    const finalMethod = method || selectedPaymentMethod;
     try {
       if (type === "plan") {
         const response = await fetch("/api/player/membership/purchase", {
@@ -271,7 +331,7 @@ function UnifiedPaymentForm() {
             playersCount,
             razorpayOrderId,
             couponId: appliedCoupon?._id || undefined,
-            paymentMethod: selectedPaymentMethod,
+            paymentMethod: finalMethod,
           }),
         });
 
@@ -297,14 +357,19 @@ function UnifiedPaymentForm() {
     }
   }
 
-    async function handlePayment() {
+  async function handlePayment(method: "RAZORPAY" | "PAY_AT_COUNTER" = "RAZORPAY") {
+    if (isExpired) {
+      setError("This booking session has expired. Please create a new booking.");
+      return;
+    }
     setPaying(true);
     setError("");
+    setSelectedPaymentMethod(method);
 
     try {
       const amount = finalAmountToPay;
-      if (selectedPaymentMethod === "PAY_AT_COUNTER") {
-        await finalizePayment("order_counter_payment_" + Math.random().toString(36).substring(2, 10));
+      if (method === "PAY_AT_COUNTER") {
+        await finalizePayment("order_counter_payment_" + Math.random().toString(36).substring(2, 10), "PAY_AT_COUNTER");
         return;
       }
       if (amount <= 0) {
@@ -677,63 +742,14 @@ function UnifiedPaymentForm() {
               </div>
             </div>
 
-            {/* Payment Option Selection Toggle */}
-            {isPayAtCounterAllowed && (
-              <div className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-black/5 space-y-3 text-left">
-                <p className="text-xs font-black uppercase text-[var(--text-muted)] tracking-wider">
-                  Select Payment Option
-                </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPaymentMethod("RAZORPAY")}
-                    className={`h-12 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 border ${
-                      selectedPaymentMethod === "RAZORPAY"
-                        ? "bg-[var(--primary)] text-white border-[var(--primary)] shadow-sm"
-                        : "bg-gray-50 text-[var(--primary)] border-black/5 hover:bg-gray-100"
-                    }`}
-                  >
-                    Pay Online
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPaymentMethod("PAY_AT_COUNTER")}
-                    className={`h-12 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 border ${
-                      selectedPaymentMethod === "PAY_AT_COUNTER"
-                        ? "bg-[var(--primary)] text-white border-[var(--primary)] shadow-sm"
-                        : "bg-gray-50 text-[var(--primary)] border-black/5 hover:bg-gray-100"
-                    }`}
-                  >
-                    Pay at Counter
-                  </button>
+            {/* Countdown timer for grace period */}
+            {timeLeft && !isExpired && (
+              <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 flex flex-col gap-2 text-xs font-bold text-amber-800 text-left">
+                <span className="font-semibold text-center">Complete your payment within 10 minutes to confirm your booking.</span>
+                <div className="flex justify-between items-center mt-1">
+                  <span>Reservation holds for:</span>
+                  <span className="bg-amber-100 px-2 py-0.5 rounded text-amber-900 font-mono font-black">{timeLeft}</span>
                 </div>
-              </div>
-            )}
-
-            {/* Information Card based on Payment Mode */}
-            {selectedPaymentMethod === "PAY_AT_COUNTER" ? (
-              <div className="rounded-[2rem] bg-amber-50 p-5 text-center space-y-3 border border-amber-100 text-amber-900">
-                <div className="flex justify-center">
-                  <Clock size={32} />
-                </div>
-                <h3 className="text-sm font-black">
-                  Pay at Counter Requested
-                </h3>
-                <p className="text-xs font-semibold leading-relaxed">
-                  Your reservation will be held. Please pay at the zone counter prior to checking in. Staff will activate your session once payment is received.
-                </p>
-              </div>
-            ) : (
-              <div className="rounded-[2rem] bg-[#EDEBE2] p-5 text-center space-y-3">
-                <div className="flex justify-center text-[var(--primary)]">
-                  <CreditCard size={32} />
-                </div>
-                <h3 className="text-sm font-black text-[var(--primary)]">
-                  Secure Test Gateway Enabled
-                </h3>
-                <p className="text-xs font-semibold text-[var(--text-muted)] leading-relaxed">
-                  Clicking Make Payment will simulate a successful Razorpay callback and immediately activate your membership or secure your booking.
-                </p>
               </div>
             )}
 
@@ -743,25 +759,45 @@ function UnifiedPaymentForm() {
               </p>
             )}
 
-            <button
-              onClick={handlePayment}
-              disabled={paying}
-              className="h-16 w-full rounded-full bg-[var(--primary)] text-lg font-black text-white hover:opacity-95 active:scale-[0.99] transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-md"
-            >
-              {paying ? (
-                <span>Processing...</span>
-              ) : selectedPaymentMethod === "PAY_AT_COUNTER" ? (
-                <>
+            {isExpired ? (
+              <div className="py-6 space-y-4 rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-black/5 text-center">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-50 text-red-500 ring-1 ring-red-100">
+                  <AlertTriangle size={36} />
+                </div>
+                <h2 className="text-2xl font-black text-red-500 font-black">Slot Expired</h2>
+                <p className="text-sm font-bold text-gray-500 px-4">
+                  This booking session has expired. Please create a new booking.
+                </p>
+                <button
+                  onClick={() => router.replace(isVisitor ? "/player/visitor" : "/player/bookings/create")}
+                  className="mt-6 h-12 w-full rounded-full bg-[var(--primary)] text-xs font-black text-white hover:opacity-95 transition"
+                >
+                  Create New Booking
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={() => handlePayment("RAZORPAY")}
+                  disabled={paying}
+                  className="h-16 w-full rounded-full bg-[var(--primary)] text-lg font-black text-white hover:opacity-95 active:scale-[0.99] transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-md"
+                >
                   <ShieldCheck size={20} />
-                  <span>Confirm & Reserve Slot</span>
-                </>
-              ) : (
-                <>
-                  <ShieldCheck size={20} />
-                  <span>Make Payment</span>
-                </>
-              )}
-            </button>
+                  <span>{paying && selectedPaymentMethod === "RAZORPAY" ? "Processing..." : "Pay Online"}</span>
+                </button>
+
+                {isPayAtCounterAllowed && (
+                  <button
+                    onClick={() => handlePayment("PAY_AT_COUNTER")}
+                    disabled={paying}
+                    className="h-16 w-full rounded-full bg-emerald-600 text-lg font-black text-white hover:bg-emerald-700 active:scale-[0.99] transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-md"
+                  >
+                    <Clock size={20} />
+                    <span>{paying && selectedPaymentMethod === "PAY_AT_COUNTER" ? "Reserving..." : "Pay at Counter"}</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </section>

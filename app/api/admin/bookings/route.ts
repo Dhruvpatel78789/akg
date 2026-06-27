@@ -13,87 +13,130 @@ export async function GET() {
   try {
     await connectDB();
 
-    const admin = await requireAdmin("bookings", "advancedBookings", false);
+    const admin = await requireAdmin();
     if (admin.error) return admin.error;
+
+    const isGlobalAdmin = admin.user?.role === "ADMIN";
+    const roleProfile = admin.roleProfile;
+
+    const getSubPermission = (subKey: string) => {
+      if (isGlobalAdmin) return { view: true, edit: true };
+      const perm = roleProfile?.permissions?.find((p: any) => p.section === "bookings");
+      if (!perm) return { view: false, edit: false };
+
+      const subSectionsObj = perm.subSections instanceof Map 
+        ? Object.fromEntries(perm.subSections) 
+        : perm.subSections || {};
+
+      return subSectionsObj[subKey] || { view: false, edit: false };
+    };
+
+    const hasAnyView = isGlobalAdmin || [
+      "advancedBookings",
+      "ongoingSessions",
+      "bookingHistory",
+      "pendingPayments",
+      "failedPayments",
+      "cancellationRequests",
+      "timeChangeRequests",
+    ].some(subKey => getSubPermission(subKey).view);
+
+    if (!hasAnyView) {
+      return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+    }
 
     // Automate future bookings -> active sessions -> completed history transitions
     await updateBookingStatuses();
 
     const now = new Date();
 
-    const advancedBookings = await Booking.find({
-      status: "BOOKED",
-      startTime: { $gt: now },
-      $or: [
-        { paymentStatus: "PAID" },
-        { paymentMethod: "PAY_AT_COUNTER" }
-      ],
-      softDeleted: false,
-    })
-      .populate("userId", "name phone email role")
-      .populate("companyId", "name")
-      .populate("companyEmployeeId", "name mobile email employeeId")
-      .sort({ startTime: 1 })
-      .lean();
+    const advancedBookings = getSubPermission("advancedBookings").view
+      ? await Booking.find({
+          status: "BOOKED",
+          startTime: { $gt: now },
+          $or: [
+            { paymentStatus: "PAID" },
+            { paymentMethod: "PAY_AT_COUNTER" }
+          ],
+          softDeleted: false,
+        })
+          .populate("userId", "name phone email role")
+          .populate("companyId", "name")
+          .populate("companyEmployeeId", "name mobile email employeeId")
+          .sort({ startTime: 1 })
+          .lean()
+      : [];
 
-    const ongoingSessions = await Booking.find({
-      status: "STARTED",
-      paymentStatus: "PAID",
-      softDeleted: false,
-    })
-      .populate("userId", "name phone email role")
-      .populate("companyId", "name")
-      .populate("companyEmployeeId", "name mobile email employeeId")
-      .sort({ startTime: 1 })
-      .lean();
+    const ongoingSessions = getSubPermission("ongoingSessions").view
+      ? await Booking.find({
+          status: "STARTED",
+          paymentStatus: "PAID",
+          softDeleted: false,
+        })
+          .populate("userId", "name phone email role")
+          .populate("companyId", "name")
+          .populate("companyEmployeeId", "name mobile email employeeId")
+          .sort({ startTime: 1 })
+          .lean()
+      : [];
 
-    const bookingHistory = await Booking.find({
-      status: { $in: ["COMPLETED", "CANCELLED"] },
-      paymentStatus: "PAID",
-      softDeleted: false,
-    })
-      .populate("userId", "name phone email role")
-      .populate("companyId", "name")
-      .populate("companyEmployeeId", "name mobile email employeeId")
-      .sort({ endTime: -1 })
-      .limit(200)
-      .lean();
+    const bookingHistory = getSubPermission("bookingHistory").view
+      ? await Booking.find({
+          status: { $in: ["COMPLETED", "CANCELLED"] },
+          paymentStatus: "PAID",
+          softDeleted: false,
+        })
+          .populate("userId", "name phone email role")
+          .populate("companyId", "name")
+          .populate("companyEmployeeId", "name mobile email employeeId")
+          .sort({ endTime: -1 })
+          .limit(200)
+          .lean()
+      : [];
 
-    const pendingPayments = await Booking.find({
-      paymentStatus: "PENDING",
-      softDeleted: false,
-    })
-      .populate("userId", "name phone email role")
-      .populate("companyId", "name")
-      .populate("companyEmployeeId", "name mobile email employeeId")
-      .sort({ createdAt: -1 })
-      .lean();
+    const pendingPayments = getSubPermission("pendingPayments").view
+      ? await Booking.find({
+          paymentStatus: "PENDING",
+          softDeleted: false,
+        })
+          .populate("userId", "name phone email role")
+          .populate("companyId", "name")
+          .populate("companyEmployeeId", "name mobile email employeeId")
+          .sort({ createdAt: -1 })
+          .lean()
+      : [];
 
-    const failedPayments = await Booking.find({
-      paymentStatus: "FAILED",
-      softDeleted: false,
-    })
-      .populate("userId", "name phone email role")
-      .populate("companyId", "name")
-      .populate("companyEmployeeId", "name mobile email employeeId")
-      .sort({ createdAt: -1 })
-      .lean();
+    const failedPayments = getSubPermission("failedPayments").view
+      ? await Booking.find({
+          paymentStatus: "FAILED",
+          softDeleted: false,
+        })
+          .populate("userId", "name phone email role")
+          .populate("companyId", "name")
+          .populate("companyEmployeeId", "name mobile email employeeId")
+          .sort({ createdAt: -1 })
+          .lean()
+      : [];
 
-    const cancellationRequests = await BookingRequest.find({
-      type: "CANCELLATION",
-    })
-      .populate("userId", "name phone email role")
-      .populate("bookingId")
-      .sort({ createdAt: -1 })
-      .lean();
+    const cancellationRequests = getSubPermission("cancellationRequests").view
+      ? await BookingRequest.find({
+          type: "CANCELLATION",
+        })
+          .populate("userId", "name phone email role")
+          .populate("bookingId")
+          .sort({ createdAt: -1 })
+          .lean()
+      : [];
 
-    const timeChangeRequests = await BookingRequest.find({
-      type: "TIME_CHANGE",
-    })
-      .populate("userId", "name phone email role")
-      .populate("bookingId")
-      .sort({ createdAt: -1 })
-      .lean();
+    const timeChangeRequests = getSubPermission("timeChangeRequests").view
+      ? await BookingRequest.find({
+          type: "TIME_CHANGE",
+        })
+          .populate("userId", "name phone email role")
+          .populate("bookingId")
+          .sort({ createdAt: -1 })
+          .lean()
+      : [];
 
     return NextResponse.json({
       advancedBookings,
@@ -113,11 +156,26 @@ export async function GET() {
 export async function PATCH(request: Request) {
   try {
     await connectDB();
-    const admin = await requireAdmin();
-    if (admin.error) return admin.error;
 
     const body = await request.json();
     const { requestId, bookingId, action, status } = body; // status can be "APPROVED" or "REJECTED"
+
+    let admin;
+    if (bookingId && action) {
+      admin = await requireAdmin("bookings", "advancedBookings", true);
+      if (admin.error) return admin.error;
+    } else if (requestId) {
+      const tempReq = await BookingRequest.findById(requestId).lean();
+      if (!tempReq) {
+        return NextResponse.json({ message: "Request not found" }, { status: 404 });
+      }
+      const subKey = tempReq.type === "CANCELLATION" ? "cancellationRequests" : "timeChangeRequests";
+      admin = await requireAdmin("bookings", subKey, true);
+      if (admin.error) return admin.error;
+    } else {
+      admin = await requireAdmin();
+      if (admin.error) return admin.error;
+    }
 
     // Handle Direct Admin Actions (Edit/Cancel)
     if (bookingId && action) {

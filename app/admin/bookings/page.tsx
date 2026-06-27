@@ -86,6 +86,16 @@ const tabs = [
 
 type Tab = (typeof tabs)[number];
 
+const TAB_KEYS: Record<Tab, string> = {
+  "Advanced Booking": "advancedBookings",
+  "Ongoing Sessions": "ongoingSessions",
+  "All Booking History": "bookingHistory",
+  "Pending Payments": "pendingPayments",
+  "Failed Payments": "failedPayments",
+  "Cancellation Requests": "cancellationRequests",
+  "Time Change Requests": "timeChangeRequests",
+};
+
 function formatDateTime(value?: string) {
   return formatToISTDateTimeString(value);
 }
@@ -119,6 +129,61 @@ function mergeById<T extends { _id: string }>(current: T[], incoming: T[]): T[] 
 
 export default function AdminBookingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>("Advanced Booking");
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.user) {
+          setUser(data.user);
+        }
+      })
+      .catch((err) => console.error(err));
+  }, []);
+
+  const filteredTabs = useMemo(() => {
+    if (!user) return [];
+    if (user.role === "ADMIN") return tabs;
+    const profile = user.roleProfile;
+    if (!profile) return [];
+
+    const perm = profile.permissions?.find((p: any) => p.section === "bookings");
+    if (!perm) return [];
+
+    const subSectionsObj = perm.subSections instanceof Map
+      ? Object.fromEntries(perm.subSections)
+      : perm.subSections || {};
+
+    return tabs.filter((tab) => {
+      const subKey = TAB_KEYS[tab];
+      return !!subSectionsObj[subKey]?.view;
+    });
+  }, [user]);
+
+  // Adjust active tab if it's not in the filtered list
+  useEffect(() => {
+    if (filteredTabs.length > 0 && !filteredTabs.includes(activeTab)) {
+      setActiveTab(filteredTabs[0]);
+    }
+  }, [filteredTabs, activeTab]);
+
+  const canEditActiveTab = useMemo(() => {
+    if (!user) return false;
+    if (user.role === "ADMIN") return true;
+    const profile = user.roleProfile;
+    if (!profile) return false;
+
+    const perm = profile.permissions?.find((p: any) => p.section === "bookings");
+    if (!perm) return false;
+
+    const subSectionsObj = perm.subSections instanceof Map
+      ? Object.fromEntries(perm.subSections)
+      : perm.subSections || {};
+
+    const subKey = TAB_KEYS[activeTab];
+    return !!subSectionsObj[subKey]?.edit;
+  }, [user, activeTab]);
   const [data, setData] = useState<BookingData>({
     advancedBookings: [],
     ongoingSessions: [],
@@ -563,7 +628,7 @@ export default function AdminBookingsPage() {
 
       {/* Tabs */}
       <div className="mt-8 flex flex-wrap gap-2">
-        {tabs.map((tab) => (
+        {filteredTabs.map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -659,9 +724,9 @@ export default function AdminBookingsPage() {
             Loading bookings...
           </p>
         ) : activeTab === "Cancellation Requests" ? (
-          <RequestTable requests={data.cancellationRequests} onProcess={handleProcessRequest} />
+          <RequestTable requests={data.cancellationRequests} onProcess={handleProcessRequest} canEdit={canEditActiveTab} />
         ) : activeTab === "Time Change Requests" ? (
-          <RequestTable requests={data.timeChangeRequests} onProcess={handleProcessRequest} />
+          <RequestTable requests={data.timeChangeRequests} onProcess={handleProcessRequest} canEdit={canEditActiveTab} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1100px] text-left text-sm">
@@ -785,7 +850,7 @@ export default function AdminBookingsPage() {
                           >
                             <Eye size={16} />
                           </button>
-                          {booking.status !== "CANCELLED" && booking.status !== "COMPLETED" ? (
+                          {canEditActiveTab && booking.status !== "CANCELLED" && booking.status !== "COMPLETED" ? (
                             <>
                               {booking.status === "STARTED" && (
                                 <>
@@ -1206,7 +1271,7 @@ export default function AdminBookingsPage() {
             </div>
 
             {/* Admin Payment Status Override Form */}
-            {selectedDetailsBooking.playerType !== "COMPANY" && (
+            {canEditActiveTab && selectedDetailsBooking.playerType !== "COMPANY" && (
               <form onSubmit={handleOverrideSubmit} className="border-t pt-4 space-y-3">
                 <h4 className="text-sm font-black text-[var(--primary)] flex items-center gap-1.5 text-amber-700">
                   <ShieldAlert size={16} />
@@ -1272,9 +1337,11 @@ export default function AdminBookingsPage() {
 function RequestTable({
   requests,
   onProcess,
+  canEdit,
 }: {
   requests: BookingRequest[];
   onProcess: (id: string, status: "APPROVED" | "REJECTED") => void;
+  canEdit: boolean;
 }) {
   return (
     <div className="overflow-x-auto">
@@ -1322,20 +1389,24 @@ function RequestTable({
               </td>
               <td>
                 {request.status === "PENDING" ? (
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => onProcess(request._id, "APPROVED")}
-                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-black text-white active:scale-95 transition-all"
-                    >
-                      Approve
-                    </button>
-                    <button
-                      onClick={() => onProcess(request._id, "REJECTED")}
-                      className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-black text-white active:scale-95 transition-all"
-                    >
-                      Reject
-                    </button>
-                  </div>
+                  canEdit ? (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => onProcess(request._id, "APPROVED")}
+                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-black text-white active:scale-95 transition-all"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => onProcess(request._id, "REJECTED")}
+                        className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-black text-white active:scale-95 transition-all"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-xs font-bold text-gray-400">View Only</span>
+                  )
                 ) : (
                   <span className="text-xs font-bold text-gray-400">Processed</span>
                 )}

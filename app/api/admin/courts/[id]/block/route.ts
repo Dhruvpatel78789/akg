@@ -49,6 +49,55 @@ export async function POST(
     );
   }
 
+  const overrideMode = body.overrideMode; // "KEEP" or "OVERRIDE"
+
+  // Check for future overlapping bookings
+  const overlappingBookings = await Booking.find({
+    court: court.name,
+    gameId: court.gameId,
+    status: { $in: ["BOOKED", "STARTED"] },
+    softDeleted: false,
+    startTime: { $lt: blockedTo },
+    endTime: { $gt: blockedFrom },
+  });
+
+  if (overlappingBookings.length > 0 && !overrideMode) {
+    return NextResponse.json({
+      hasBookings: true,
+      bookingsCount: overlappingBookings.length,
+      message: `Court ${court.name} has ${overlappingBookings.length} booking(s) during the selected period. Please choose how to proceed.`,
+    });
+  }
+
+  if (overlappingBookings.length > 0 && overrideMode === "OVERRIDE") {
+    // Mark overlapping bookings as reschedule required
+    await Booking.updateMany(
+      {
+        court: court.name,
+        gameId: court.gameId,
+        status: { $in: ["BOOKED", "STARTED"] },
+        softDeleted: false,
+        startTime: { $lt: blockedTo },
+        endTime: { $gt: blockedFrom },
+      },
+      { $set: { rescheduleRequired: true } }
+    );
+
+    // Send notifications to users
+    const { Notification } = await import("@/models/Notification");
+    for (const b of overlappingBookings) {
+      const timeStr = b.startTime ? new Date(b.startTime as any).toLocaleString() : "";
+      await Notification.create({
+        userId: b.userId,
+        title: "Reschedule Required",
+        message: `Your booking for ${b.gameName} on court ${court.name} at ${timeStr} requires rescheduling due to a court maintenance block.`,
+        type: "ALERT",
+        relatedEntityId: b._id,
+        relatedEntityType: "Booking",
+      }).catch(() => {});
+    }
+  }
+
   const activeSession = await Booking.findOne({
     court: court.name,
     gameId: court.gameId,
@@ -64,18 +113,14 @@ export async function POST(
     reason: result.data.reason || "",
     status: activeSession ? "PENDING_AFTER_SESSION" : "ACTIVE",
     applyAfterCurrentSession: Boolean(activeSession),
-  });
-
-  await Court.findByIdAndUpdate(court._id, {
-    disabled: true,
-    active: false,
+    keepExistingBookings: overrideMode !== "OVERRIDE", // Defaults to true/Option A (KEEP)
   });
 
   return NextResponse.json(
     {
       message: activeSession
-        ? "Court will be disabled after current session ends"
-        : "Court disabled",
+        ? "Court will be blocked after current session ends"
+        : "Court block scheduled successfully",
       block,
     },
     { status: 201 }

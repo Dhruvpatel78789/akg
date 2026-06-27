@@ -48,11 +48,6 @@ function getMinutes(start: string, end: string) {
 }
 
 async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd: Date, excludeBookingId?: string) {
-  const courts = await Court.find({ gameId, active: true, disabled: false }).lean();
-  if (courts.length === 0) {
-    return { available: false, reason: "No courts configured for this game" };
-  }
-
   const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
   const query: any = {
     gameId,
@@ -71,18 +66,25 @@ async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd:
     query._id = { $ne: new mongoose.Types.ObjectId(excludeBookingId) };
   }
 
-  const overlappingBookings = await Booking.find(query).lean();
+  // Fetch courts, bookings and blocks concurrently
+  const [courts, overlappingBookings, overlappingBlocks] = await Promise.all([
+    Court.find({ gameId, active: true, disabled: { $ne: true } }).lean(),
+    Booking.find(query).lean(),
+    CourtBlock.find({
+      gameId,
+      status: { $in: ["ACTIVE", "SCHEDULED"] },
+      $or: [
+        { blockedFrom: { $lt: bookingEnd }, blockedTo: { $gt: bookingStart } }
+      ]
+    }).lean()
+  ]);
 
-  const overlappingBlocks = await CourtBlock.find({
-    gameId,
-    status: { $in: ["ACTIVE", "SCHEDULED"] },
-    $or: [
-      { blockedFrom: { $lt: bookingEnd }, blockedTo: { $gt: bookingStart } }
-    ]
-  }).lean();
+  if (courts.length === 0) {
+    return { available: false, reason: "No active courts configured for this game" };
+  }
 
   for (const court of courts) {
-    const isBooked = overlappingBookings.some((b) => b.court === court.name);
+    const isBooked = overlappingBookings.some((b) => b.court?.toLowerCase() === court.name.toLowerCase());
     const isBlocked = overlappingBlocks.some((bl) => bl.courtId.toString() === court._id.toString());
 
     if (!isBooked && !isBlocked) {
@@ -212,17 +214,58 @@ export async function GET(request: Request) {
       const start = parseDateTime(date, startTime);
       const end = parseDateTime(date, endTime, crossMidnight ? 1 : 0);
 
-      if (start.getTime() < Date.now() - 5 * 60 * 1000) {
+      if (start.getTime() < Date.now()) {
         return NextResponse.json({
           success: true,
           available: false,
           reason: "Cannot book a slot in the past. Please select a future date and time.",
           coinCost: cost,
           endTime,
+          suggestedSlots: [],
         });
       }
 
       const avail = await checkAvailability(gameId, start, end);
+      let suggestedSlots: any[] = [];
+      if (!avail.available) {
+        const { getAlternativeSlots } = await import("@/lib/availability");
+        suggestedSlots = await getAlternativeSlots(gameId, date, startTime, durationMinutes, playersCount);
+      }
+
+      let availableCourts: string[] = [];
+      if (game.allowCourtSelection) {
+        const { Court } = await import("@/models/court");
+        const { CourtBlock } = await import("@/models/CourtBlock");
+        const courts = await Court.find({ gameId, active: true, disabled: { $ne: true } }).lean();
+        const overlappingBookings = await Booking.find({
+          gameId,
+          status: { $in: ["BOOKED", "STARTED"] },
+          softDeleted: false,
+          startTime: { $lt: end },
+          endTime: { $gt: start },
+          $or: [
+            { paymentStatus: "PAID" },
+            { paymentMethod: "PAY_AT_COUNTER" },
+            { paymentStatus: "PENDING", createdAt: { $gte: new Date(Date.now() - 10 * 60 * 1000) } },
+            { paymentStatus: "PENDING", intentExpiresAt: { $gt: new Date() } }
+          ]
+        }).lean();
+
+        const overlappingBlocks = await CourtBlock.find({
+          gameId,
+          status: { $in: ["ACTIVE", "SCHEDULED"] },
+          blockedFrom: { $lt: end },
+          blockedTo: { $gt: start }
+        }).lean();
+
+        for (const court of courts) {
+          const isBooked = overlappingBookings.some((b) => b.court?.toLowerCase() === court.name.toLowerCase());
+          const isBlocked = overlappingBlocks.some((bl) => bl.courtId.toString() === court._id.toString());
+          if (!isBooked && !isBlocked) {
+            availableCourts.push(court.name);
+          }
+        }
+      }
 
       return NextResponse.json({
         success: true,
@@ -232,6 +275,9 @@ export async function GET(request: Request) {
         reason: avail.reason,
         endTime,
         crossMidnight,
+        suggestedSlots,
+        availableCourts,
+        allowCourtSelection: game.allowCourtSelection,
       });
     }
 
@@ -240,6 +286,7 @@ export async function GET(request: Request) {
       success: true,
       available: null,
       coinCost: cost,
+      allowCourtSelection: game.allowCourtSelection,
     });
   } catch (error: any) {
     return NextResponse.json({ message: error.message || "Failed to check slot details" }, { status: 500 });
@@ -354,6 +401,7 @@ export async function POST(request: Request) {
     }
 
     const bookingCost = calculateBasePrice(rule, count);
+    const userCourt = body.court; // optional chosen court
     
     // Check if start/end times roll over midnight
     const [sh, sm] = startTime.split(":").map(Number);
@@ -363,7 +411,17 @@ export async function POST(request: Request) {
     const start = parseDateTime(date, startTime);
     const end = parseDateTime(date, endTime, crossMidnight ? 1 : 0);
 
-    if (start.getTime() < Date.now() - 5 * 60 * 1000) {
+    let existingBookingForGrace: any = null;
+    if (bookingId && mongoose.Types.ObjectId.isValid(bookingId)) {
+      existingBookingForGrace = await Booking.findById(bookingId).lean();
+    }
+
+    const hasValidGracePeriod = existingBookingForGrace && 
+      existingBookingForGrace.intentExpiresAt && 
+      new Date(existingBookingForGrace.intentExpiresAt) > new Date();
+
+    // If there's no active valid grace period, strictly validate that bookingStartTime is in the future
+    if (!hasValidGracePeriod && start.getTime() < Date.now()) {
       return NextResponse.json({ message: "Cannot book a slot in the past. Please select a future date and time." }, { status: 400 });
     }
 
@@ -371,6 +429,30 @@ export async function POST(request: Request) {
     const avail = await checkAvailability(gameId, start, end, bookingId);
     if (!avail.available) {
       return NextResponse.json({ message: avail.reason || "Slot is not available" }, { status: 409 });
+    }
+
+    let finalCourt = avail.courtName;
+    if (game.allowCourtSelection && userCourt) {
+      // Verify chosen court is available
+      const overlappingBookings = await Booking.find({
+        gameId,
+        court: { $regex: new RegExp(`^${userCourt}$`, "i") },
+        _id: { $ne: bookingId ? new mongoose.Types.ObjectId(bookingId) : undefined },
+        status: { $in: ["BOOKED", "STARTED"] },
+        softDeleted: false,
+        startTime: { $lt: end },
+        endTime: { $gt: start },
+        $or: [
+          { paymentStatus: "PAID" },
+          { paymentMethod: "PAY_AT_COUNTER" },
+          { paymentStatus: "PENDING", createdAt: { $gte: new Date(Date.now() - 10 * 60 * 1000) } },
+          { paymentStatus: "PENDING", intentExpiresAt: { $gt: new Date() } }
+        ]
+      });
+      if (overlappingBookings.length > 0) {
+        return NextResponse.json({ message: `Court ${userCourt} is not available for this slot.` }, { status: 409 });
+      }
+      finalCourt = userCourt;
     }
 
     // Coupon discount calculation
@@ -590,7 +672,7 @@ export async function POST(request: Request) {
         userId: user._id,
         gameId,
         gameName: game.name,
-        court: avail.courtName,
+        court: finalCourt,
         startTime: start,
         endTime: end,
         coinCost: 0,
@@ -631,7 +713,7 @@ export async function POST(request: Request) {
         userId: user._id,
         gameId,
         gameName: game.name,
-        court: avail.courtName,
+        court: finalCourt,
         startTime: start,
         endTime: end,
         coinCost: 0, // No coins deducted
@@ -671,11 +753,13 @@ export async function POST(request: Request) {
 
     // Helper to create pending booking
     const createPendingBooking = async () => {
+      const intentCreatedAt = new Date();
+      const intentExpiresAt = new Date(intentCreatedAt.getTime() + 10 * 60 * 1000);
       return await Booking.create({
         userId: user._id,
         gameId,
         gameName: game.name,
-        court: avail.courtName,
+        court: finalCourt,
         startTime: start,
         endTime: end,
         coinCost: 0,
@@ -686,6 +770,8 @@ export async function POST(request: Request) {
         playerType: user.role === "VISITOR" ? "VISITOR" : "MEMBER",
         paymentMode: "online",
         paymentStatus: "PENDING",
+        intentCreatedAt,
+        intentExpiresAt,
       });
     };
 
@@ -741,7 +827,7 @@ export async function POST(request: Request) {
       userId: user._id,
       gameId,
       gameName: game.name,
-      court: avail.courtName,
+      court: finalCourt,
       startTime: start,
       endTime: end,
       coinCost: bookingCost,
@@ -759,7 +845,7 @@ export async function POST(request: Request) {
       type: "SESSION_DEDUCTION",
       amount: 0,
       coins: bookingCost,
-      note: `Booked session for ${game.name} on court ${avail.courtName}`,
+      note: `Booked session for ${game.name} on court ${finalCourt}`,
       paymentMode: "coins",
       paymentStatus: "PAID",
     });

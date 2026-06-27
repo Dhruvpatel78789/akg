@@ -18,15 +18,10 @@ export function calculateBasePrice(rule: any, playersIncluded: number) {
   return rule.baseCourtPrice + playersIncluded * rule.pricePerPlayer;
 }
 
-export async function checkCourtAvailability(gameId: string, bookingStart: Date, bookingEnd: Date) {
-  const courts = await Court.find({ gameId, active: true, disabled: false }).lean();
-  if (courts.length === 0) {
-    return { available: false, reason: "No active courts configured for this game" };
-  }
-
+export async function checkCourtAvailability(gameId: string, bookingStart: Date, bookingEnd: Date, excludeBookingId?: string) {
   // Include pending bookings created within the last 10 minutes (reserved slots)
   const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-  const overlappingBookings = await Booking.find({
+  const bookingQuery: any = {
     gameId,
     status: { $in: ["BOOKED", "STARTED"] },
     softDeleted: false,
@@ -35,20 +30,48 @@ export async function checkCourtAvailability(gameId: string, bookingStart: Date,
     $or: [
       { paymentStatus: "PAID" },
       { paymentMethod: "PAY_AT_COUNTER" },
-      { paymentStatus: "PENDING", createdAt: { $gte: tenMinutesAgo } }
+      { paymentStatus: "PENDING", createdAt: { $gte: tenMinutesAgo } },
+      { paymentStatus: "PENDING", intentExpiresAt: { $gt: new Date() } }
     ]
-  }).lean();
+  };
 
-  const overlappingBlocks = await CourtBlock.find({
-    gameId,
-    status: { $in: ["ACTIVE", "SCHEDULED"] },
-    blockedFrom: { $lt: bookingEnd },
-    blockedTo: { $gt: bookingStart }
-  }).lean();
+  if (excludeBookingId) {
+    bookingQuery._id = { $ne: new mongoose.Types.ObjectId(excludeBookingId) };
+  }
+
+  // Fetch all database records concurrently in parallel
+  const [courts, overlappingBookings, overlappingBlocks, existingBooking] = await Promise.all([
+    Court.find({ gameId, active: true, disabled: { $ne: true } }).lean(),
+    Booking.find(bookingQuery).lean(),
+    CourtBlock.find({
+      gameId,
+      status: { $in: ["ACTIVE", "SCHEDULED"] },
+      blockedFrom: { $lt: bookingEnd },
+      blockedTo: { $gt: bookingStart }
+    }).lean(),
+    excludeBookingId && mongoose.Types.ObjectId.isValid(excludeBookingId)
+      ? Booking.findById(excludeBookingId).lean()
+      : Promise.resolve(null)
+  ]);
+
+  if (courts.length === 0) {
+    return { available: false, reason: "No active courts configured for this game" };
+  }
 
   for (const court of courts) {
-    const isBooked = overlappingBookings.some((b) => b.court === court.name);
-    const isBlocked = overlappingBlocks.some((bl) => bl.courtId.toString() === court._id.toString());
+    const isBooked = overlappingBookings.some((b) => b.court?.toLowerCase() === court.name.toLowerCase());
+    
+    // Ignore blocks that are configured to keep existing bookings if our booking is pre-existing (createdAt < block.createdAt)
+    const isBlocked = overlappingBlocks.some((bl) => {
+      if (bl.courtId.toString() !== court._id.toString()) return false;
+      if (bl.keepExistingBookings) {
+        // If our booking was created before the court block was created, we can play!
+        if (existingBooking && new Date((existingBooking as any).createdAt) < new Date(bl.createdAt)) {
+          return false; // ignore block
+        }
+      }
+      return true;
+    });
 
     if (!isBooked && !isBlocked) {
       return { available: true, courtName: court.name };
@@ -139,29 +162,27 @@ export async function getAlternativeSlots(
     currentAfter += step;
   }
 
-  // We want to return at least 4 suggestions if possible:
-  // Prefer 2 before and 2 after.
-  // If we don't have enough on one side, we can borrow from the other side.
-  let selectedBefore = beforeSlots.slice(0, 2);
-  let selectedAfter = afterSlots.slice(0, 2);
-
-  if (selectedBefore.length < 2) {
-    const needed = 2 - selectedBefore.length;
-    selectedAfter = afterSlots.slice(0, 2 + needed);
-  }
-  if (selectedAfter.length < 2) {
-    const needed = 2 - selectedAfter.length;
-    selectedBefore = beforeSlots.slice(0, 2 + needed);
-  }
-
-  // Combine and sort chronologically
-  const allSuggested = [...selectedBefore, ...selectedAfter];
+  // Combine and sort by absolute time difference from requested slot
+  const allSuggested = [...beforeSlots, ...afterSlots];
   allSuggested.sort((a, b) => {
+    const [ah, am] = a.split(":").map(Number);
+    const [bh, bm] = b.split(":").map(Number);
+    
+    const diffA = Math.abs((ah * 60 + am) - requestedStartMinutes);
+    const diffB = Math.abs((bh * 60 + bm) - requestedStartMinutes);
+    
+    return diffA - diffB;
+  });
+
+  // Unique suggestions, limit to 4
+  const uniqueSuggested = Array.from(new Set(allSuggested)).slice(0, 4);
+
+  // Return them sorted chronologically for presentation
+  uniqueSuggested.sort((a, b) => {
     const [ah, am] = a.split(":").map(Number);
     const [bh, bm] = b.split(":").map(Number);
     return (ah * 60 + am) - (bh * 60 + bm);
   });
 
-  // Unique suggestions just in case
-  return Array.from(new Set(allSuggested));
+  return uniqueSuggested;
 }
