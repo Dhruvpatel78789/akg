@@ -97,6 +97,42 @@ function UnifiedPaymentForm() {
   const [successBookingId, setSuccessBookingId] = useState("");
   const [hasAutoPaid, setHasAutoPaid] = useState(false);
 
+  // Auto Offer / Discount
+  const [autoOffer, setAutoOffer] = useState<{ name: string; discountAmount: number } | null>(null);
+
+  // Fetch auto discount on load
+  useEffect(() => {
+    if (type === "booking") {
+      const pGameId = searchParams.get("gameId") || gameId;
+      const pDate = searchParams.get("date") || bookingDate;
+      const pStartTime = searchParams.get("startTime") || bookingStartTime;
+      const pAmount = Number(searchParams.get("coinCost") || coinCost || 0);
+
+      if (pGameId && pDate && pStartTime && pAmount > 0) {
+        fetch("/api/player/offers/check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            gameId: pGameId,
+            date: pDate,
+            startTime: pStartTime,
+            amount: pAmount,
+          }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.success) {
+              setAutoOffer({
+                name: data.name,
+                discountAmount: data.discountAmount,
+              });
+            }
+          })
+          .catch((err) => console.error("Error loading auto discount:", err));
+      }
+    }
+  }, [type, gameId, bookingDate, bookingStartTime, coinCost, searchParams]);
+
 
 
   const selectedGameName = useMemo(() => {
@@ -197,9 +233,14 @@ function UnifiedPaymentForm() {
   const [couponError, setCouponError] = useState("");
   const [couponLoading, setCouponLoading] = useState(false);
 
+  const autoDiscountAmount = useMemo(() => {
+    if (!autoOffer) return 0;
+    return autoOffer.discountAmount;
+  }, [autoOffer]);
+
   const discountAmount = useMemo(() => {
     if (!appliedCoupon) return 0;
-    const base = amountToPay;
+    const base = Math.max(0, amountToPay - autoDiscountAmount);
     let disc = 0;
     if (appliedCoupon.type === "FLAT") {
       disc = appliedCoupon.value;
@@ -210,11 +251,11 @@ function UnifiedPaymentForm() {
       }
     }
     return Math.min(disc, base);
-  }, [appliedCoupon, amountToPay]);
+  }, [appliedCoupon, amountToPay, autoDiscountAmount]);
 
   const finalAmountToPay = useMemo(() => {
-    return Math.max(0, amountToPay - discountAmount);
-  }, [amountToPay, discountAmount]);
+    return Math.max(0, amountToPay - autoDiscountAmount - discountAmount);
+  }, [amountToPay, autoDiscountAmount, discountAmount]);
 
   // Expiration timer logic
   useEffect(() => {
@@ -268,7 +309,7 @@ function UnifiedPaymentForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code: couponCode.trim(),
-          bookingAmount: amountToPay,
+          bookingAmount: amountToPay - autoDiscountAmount,
           isMembershipPurchase: type === "plan",
         }),
       });
@@ -725,16 +766,35 @@ function UnifiedPaymentForm() {
 
               <hr className="border-gray-100 my-4" />
 
-              {appliedCoupon && (
-                <div className="flex justify-between items-center text-xs font-semibold text-gray-500 mb-2">
-                  <span>Price Before Coupon</span>
-                  <span className="line-through">₹{amountToPay}</span>
-                </div>
-              )}
+              {/* Bill Details Breakdown */}
+              <div className="space-y-2 mb-4">
+                {(autoOffer || appliedCoupon) && (
+                  <div className="flex justify-between items-center text-xs font-semibold text-gray-500">
+                    <span>Base Price</span>
+                    <span>₹{amountToPay}</span>
+                  </div>
+                )}
+
+                {autoOffer && (
+                  <div className="flex justify-between items-center text-xs font-semibold text-emerald-600">
+                    <span>Auto Offer: {autoOffer.name}</span>
+                    <span>-₹{autoDiscountAmount}</span>
+                  </div>
+                )}
+
+                {appliedCoupon && (
+                  <div className="flex justify-between items-center text-xs font-semibold text-emerald-600">
+                    <span>Coupon Applied: {appliedCoupon.code}</span>
+                    <span>-₹{discountAmount}</span>
+                  </div>
+                )}
+              </div>
+
+              <hr className="border-gray-100 my-4" />
 
               <div className="flex justify-between items-baseline">
                 <span className="text-sm font-black text-[var(--primary)]">
-                  {appliedCoupon ? "Adjusted Total Price" : "Total Price"}
+                  {(appliedCoupon || autoOffer) ? "Adjusted Total Price" : "Total Price"}
                 </span>
                 <span className="text-3xl font-black text-[var(--primary)]">
                   ₹{finalAmountToPay}

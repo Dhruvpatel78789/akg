@@ -455,6 +455,48 @@ export async function POST(request: Request) {
       finalCourt = userCourt;
     }
 
+    // Auto Offer / Discount check
+    let autoDiscountAmount = 0;
+    let autoDiscountName = "";
+    const { Offer } = await import("@/models/Offer");
+    const bookingDate = new Date(date);
+    const dayOfWeek = bookingDate.getDay();
+    const [hours] = startTime.split(":").map(Number);
+    const offers = await Offer.find({ active: true });
+
+    let bestOffer = null;
+    let highestAutoDiscount = 0;
+
+    for (const offer of offers) {
+      if (offer.daysOfWeek && offer.daysOfWeek.length > 0) {
+        if (!offer.daysOfWeek.includes(dayOfWeek)) continue;
+      }
+      if (offer.startHour !== undefined && offer.endHour !== undefined) {
+        if (hours < offer.startHour || hours > offer.endHour) continue;
+      }
+      if (offer.gameId && gameId) {
+        if (offer.gameId.toString() !== gameId.toString()) continue;
+      }
+
+      let disc = 0;
+      if (offer.discountType === "FLAT") {
+        disc = offer.value;
+      } else if (offer.discountType === "PERCENTAGE") {
+        disc = (bookingCost * offer.value) / 100;
+      }
+
+      if (disc > highestAutoDiscount) {
+        highestAutoDiscount = disc;
+        bestOffer = offer;
+      }
+    }
+
+    autoDiscountAmount = Math.min(highestAutoDiscount, bookingCost);
+    const bookingCostAfterAuto = bookingCost - autoDiscountAmount;
+    if (bestOffer) {
+      autoDiscountName = bestOffer.name;
+    }
+
     // Coupon discount calculation
     let discountAmount = 0;
     let coupon = null;
@@ -467,7 +509,7 @@ export async function POST(request: Request) {
       if (coupon.expiryDate && new Date(coupon.expiryDate) < new Date()) {
         return NextResponse.json({ message: "Coupon has expired." }, { status: 400 });
       }
-      if (bookingCost < coupon.minBookingAmount) {
+      if (bookingCostAfterAuto < coupon.minBookingAmount) {
         return NextResponse.json({ message: `Minimum amount to use this coupon is ₹${coupon.minBookingAmount}` }, { status: 400 });
       }
       if (coupon.usageLimit > 0 && coupon.usedCount >= coupon.usageLimit) {
@@ -481,15 +523,15 @@ export async function POST(request: Request) {
       if (coupon.type === "FLAT") {
         discountAmount = coupon.value;
       } else if (coupon.type === "PERCENTAGE") {
-        discountAmount = (bookingCost * coupon.value) / 100;
+        discountAmount = (bookingCostAfterAuto * coupon.value) / 100;
         if (coupon.maxDiscount > 0 && discountAmount > coupon.maxDiscount) {
           discountAmount = coupon.maxDiscount;
         }
       }
-      discountAmount = Math.min(discountAmount, bookingCost);
+      discountAmount = Math.min(discountAmount, bookingCostAfterAuto);
     }
 
-    const expectedPrice = Math.max(0, bookingCost - discountAmount);
+    const expectedPrice = Math.max(0, bookingCostAfterAuto - discountAmount);
     const isFree = expectedPrice <= 0;
 
     const isPayAtCounter = paymentMethod === "PAY_AT_COUNTER";

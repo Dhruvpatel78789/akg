@@ -30,6 +30,7 @@ type Game = {
   name: string;
   duration: number;
   maximumDuration: number;
+  fixedSlotBooking?: boolean;
 };
 
 export default function AdminPassesPage() {
@@ -60,6 +61,18 @@ export default function AdminPassesPage() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("");
+  const [validationError, setValidationError] = useState("");
+  
+  // Live clock synchronization states
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [isTimeChangedByUser, setIsTimeChangedByUser] = useState(false);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Fetch current user & role details
   useEffect(() => {
@@ -216,6 +229,10 @@ export default function AdminPassesPage() {
 
   async function handleCreateSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (validationError) {
+      alert(validationError);
+      return;
+    }
     setIsSubmitting(true);
     setMessage("");
 
@@ -230,6 +247,7 @@ export default function AdminPassesPage() {
       if (res.ok && data.success) {
         setMessage("Pass created successfully!");
         setShowCreateModal(false);
+        sessionStorage.removeItem("adminBookingDraft");
         loadData();
         setCreateForm({
           name: "",
@@ -245,6 +263,7 @@ export default function AdminPassesPage() {
           paymentMethod: "PAY_AT_COUNTER",
           paymentStatus: "PENDING",
         });
+        setIsTimeChangedByUser(false);
       } else {
         alert(data.message || "Failed to create pass");
       }
@@ -256,10 +275,100 @@ export default function AdminPassesPage() {
     }
   }
 
+  const selectedGame = useMemo(() => {
+    return games.find((g) => g._id === createForm.gameId) || null;
+  }, [games, createForm.gameId]);
+
+  const isPastTime = useMemo(() => {
+    if (!createForm.date || !createForm.startTime) return false;
+    const bookingStart = parseIST(createForm.date, createForm.startTime);
+    return bookingStart.getTime() < currentTime.getTime() - 60 * 1000;
+  }, [createForm.date, createForm.startTime, currentTime]);
+
+  // Synchronize startTime live to current time / nearest slot
+  useEffect(() => {
+    if (isTimeChangedByUser) return;
+    const todayStr = formatToISTDate(currentTime);
+    const targetDate = createForm.date || todayStr;
+    if (targetDate === todayStr) {
+      let nextStart = "";
+      if (selectedGame?.fixedSlotBooking) {
+        const minDur = selectedGame.duration || 60;
+        const currentHours = currentTime.getHours();
+        const currentMinutes = currentTime.getMinutes();
+        const totalMinutes = currentHours * 60 + currentMinutes;
+        const remainder = totalMinutes % minDur;
+        const nextSlotMinutes = totalMinutes + (minDur - remainder);
+        const finalMinutes = nextSlotMinutes >= 1440 ? 0 : nextSlotMinutes;
+        
+        const h = Math.floor(finalMinutes / 60);
+        const m = finalMinutes % 60;
+        nextStart = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      } else {
+        nextStart = `${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}`;
+      }
+      if (createForm.startTime !== nextStart) {
+        setCreateForm((prev) => ({ ...prev, startTime: nextStart }));
+      }
+    }
+  }, [currentTime, createForm.date, selectedGame, isTimeChangedByUser, createForm.startTime]);
+
+  // Validate start time is not in past
+  useEffect(() => {
+    if (createForm.date && createForm.startTime) {
+      if (isPastTime && isTimeChangedByUser) {
+        setValidationError("Selected start time is now in the past. Please choose a future time.");
+      } else {
+        setValidationError("");
+      }
+    }
+  }, [isPastTime, isTimeChangedByUser, createForm.date, createForm.startTime]);
+
+  // Load draft on mount
   useEffect(() => {
     const today = new Date().toLocaleDateString("en-CA");
     setCreateForm((prev) => ({ ...prev, date: today }));
-  }, []);
+
+    try {
+      const saved = sessionStorage.getItem("adminBookingDraft");
+      if (saved) {
+        const draft = JSON.parse(saved);
+        setCreateForm((prev) => ({
+          ...prev,
+          name: draft.name || "",
+          phone: draft.phone || "",
+          email: draft.email || "",
+          dob: draft.dob || "",
+          gameId: draft.gameId || prev.gameId,
+          court: draft.court || "Court A",
+          date: draft.date || today,
+          startTime: draft.startTime || "",
+          durationMinutes: draft.durationMinutes || 60,
+          playersCount: draft.playersCount || 1,
+          paymentMethod: draft.paymentMethod || "PAY_AT_COUNTER",
+          paymentStatus: draft.paymentStatus || "PENDING",
+        }));
+        setIsTimeChangedByUser(true);
+        setShowCreateModal(true);
+      }
+    } catch (e) {
+      console.error("Error restoring admin booking draft:", e);
+    }
+  }, [games]);
+
+  // Autosave draft details
+  useEffect(() => {
+    if (createForm.name || createForm.phone || createForm.email) {
+      sessionStorage.setItem("adminBookingDraft", JSON.stringify(createForm));
+    }
+  }, [createForm]);
+
+  // Helper parser
+  function parseIST(dateStr: string, timeStr: string) {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const [hr, min] = timeStr.split(":").map(Number);
+    return new Date(y, m - 1, d, hr, min);
+  }
 
   const getStatusBadgeStyle = (derivedStatus: string) => {
     switch (derivedStatus) {
@@ -556,7 +665,12 @@ export default function AdminPassesPage() {
                       type="time"
                       required
                       value={createForm.startTime}
-                      onChange={(e) => setCreateForm({ ...createForm, startTime: e.target.value })}
+                      onChange={(e) => {
+                        setCreateForm({ ...createForm, startTime: e.target.value });
+                        setIsTimeChangedByUser(true);
+                      }}
+                      onClick={() => setIsTimeChangedByUser(true)}
+                      onFocus={() => setIsTimeChangedByUser(true)}
                       className="h-10 rounded-xl bg-gray-50 px-3 text-xs font-semibold border border-gray-200 outline-none focus:border-[var(--primary)]"
                     />
                   </label>
@@ -614,6 +728,12 @@ export default function AdminPassesPage() {
                 </div>
               </div>
 
+              {validationError && (
+                <p className="text-xs font-bold text-red-500 rounded-xl bg-red-50 p-3">
+                  {validationError}
+                </p>
+              )}
+
               <footer className="border-t pt-4 flex justify-end gap-3">
                 <button
                   type="button"
@@ -624,7 +744,7 @@ export default function AdminPassesPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !!validationError}
                   className="px-5 py-2 text-xs font-black bg-[var(--primary)] text-white rounded-xl shadow-md active:scale-98 transition flex items-center gap-1.5 cursor-pointer"
                 >
                   <ShieldCheck size={14} />

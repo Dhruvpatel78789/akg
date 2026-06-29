@@ -67,14 +67,27 @@ export async function POST(req: NextRequest) {
       await resolveBookingIntent(razorpayOrderId, razorpayPaymentId, "PAID");
     }
 
-    // If bookingId is in metadata, update booking paymentStatus to PAID
+    // If bookingId is in metadata, update booking status to PAID & BOOKED, and create Transaction
     const bookingId = order.metadata?.get("bookingId");
     if (bookingId) {
       const booking = await Booking.findById(bookingId);
-      if (booking) {
+      if (booking && booking.paymentStatus !== "PAID") {
+        const { Transaction } = await import("@/models/Transaction");
         booking.paymentStatus = "PAID";
+        booking.status = "BOOKED";
         booking.transactionId = razorpayPaymentId;
+        booking.paidAt = new Date();
         await booking.save();
+
+        await Transaction.create({
+          userId: booking.userId,
+          type: "SESSION_DEDUCTION",
+          amount: order.amount || booking.price || 0,
+          coins: 0,
+          note: `Online payment booking for ${booking.gameName} on court ${booking.court || "N/A"}`,
+          paymentMode: "online",
+          paymentStatus: "PAID",
+        });
       }
     }
 

@@ -49,26 +49,43 @@ export default function CompanyBookingCreatePage() {
     return () => clearInterval(timer);
   }, []);
 
+  const selectedGame = useMemo(() => {
+    return allowedGames.find((g) => g._id === selectedGameId) || null;
+  }, [allowedGames, selectedGameId]);
+
   // Synchronize startTime live to the current time if not manually changed by the user, and the selected date is today
   useEffect(() => {
     if (isTimeChangedByUser) return;
     const todayStr = formatToISTDate(currentTime);
-    if (date === todayStr) {
-      const nowStr = `${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}`;
-      setStartTime(nowStr);
+    const targetDate = date || todayStr;
+    if (targetDate === todayStr) {
+      let nextStart = "";
+      if (selectedGame?.fixedSlotBooking) {
+        const minDur = selectedGame.duration || 60;
+        const currentHours = currentTime.getHours();
+        const currentMinutes = currentTime.getMinutes();
+        const totalMinutes = currentHours * 60 + currentMinutes;
+        const remainder = totalMinutes % minDur;
+        const nextSlotMinutes = totalMinutes + (minDur - remainder);
+        const finalMinutes = nextSlotMinutes >= 1440 ? 0 : nextSlotMinutes;
+        
+        const h = Math.floor(finalMinutes / 60);
+        const m = finalMinutes % 60;
+        nextStart = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      } else {
+        nextStart = `${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}`;
+      }
+      if (startTime !== nextStart) {
+        setStartTime(nextStart);
+      }
     }
-  }, [currentTime, date, isTimeChangedByUser]);
+  }, [currentTime, date, selectedGame, isTimeChangedByUser, startTime]);
 
   const isPastTime = useMemo(() => {
     if (!date || !startTime) return false;
     const bookingStart = parseIST(date, startTime);
-    return bookingStart.getTime() < currentTime.getTime() - 5 * 60 * 1000;
+    return bookingStart.getTime() < currentTime.getTime() - 60 * 1000;
   }, [date, startTime, currentTime]);
-
-
-  const selectedGame = useMemo(() => {
-    return allowedGames.find((g) => g._id === selectedGameId) || null;
-  }, [allowedGames, selectedGameId]);
 
   const fixedSlots = useMemo(() => {
     if (!selectedGame || !selectedGame.fixedSlotBooking) return [];
@@ -112,8 +129,8 @@ export default function CompanyBookingCreatePage() {
   const [validationError, setValidationError] = useState("");
 
   useEffect(() => {
-    if (isPastTime) {
-      setValidationError("Cannot book a slot in the past. Please select a future date and time.");
+    if (isPastTime && isTimeChangedByUser) {
+      setValidationError("Selected start time is now in the past. Please choose a future time.");
       return;
     }
     if (selectedGame) {
@@ -173,10 +190,31 @@ export default function CompanyBookingCreatePage() {
     loadGames();
   }, [router]);
 
-  // Set default date on mount
+  // Initialize date, start time, and restore draft on mount
   useEffect(() => {
     const now = new Date();
-    setDate(now.toLocaleDateString("en-CA"));
+    let defaultDate = now.toLocaleDateString("en-CA");
+    let defaultTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+    try {
+      const saved = sessionStorage.getItem("companyBookingDraft");
+      if (saved) {
+        const draft = JSON.parse(saved);
+        if (draft.selectedGameId) setSelectedGameId(draft.selectedGameId);
+        if (draft.date) defaultDate = draft.date;
+        if (draft.startTime) {
+          defaultTime = draft.startTime;
+          setIsTimeChangedByUser(true);
+        }
+        if (draft.duration) setDuration(draft.duration);
+        if (draft.selectedColleagues) setSelectedColleagues(draft.selectedColleagues);
+      }
+    } catch (e) {
+      console.error("Error restoring company draft:", e);
+    }
+
+    setDate(defaultDate);
+    setStartTime(defaultTime);
   }, []);
 
   // Calculate end time
@@ -325,6 +363,7 @@ export default function CompanyBookingCreatePage() {
         return;
       }
 
+      sessionStorage.removeItem("companyBookingDraft");
       router.push("/company/dashboard");
     } catch (err) {
       setSubmitting(false);

@@ -47,20 +47,42 @@ export default function VisitorBookingPage() {
     return () => clearInterval(timer);
   }, []);
 
+  const selectedGame = useMemo(() => {
+    return games.find((g) => g._id === selectedGameId) || null;
+  }, [games, selectedGameId]);
+
   // Synchronize startTime live to the current time if not manually changed by the user, and the selected date is today
   useEffect(() => {
     if (isTimeChangedByUser) return;
     const todayStr = formatToISTDate(currentTime);
-    if (date === todayStr) {
-      const nowStr = `${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}`;
-      setStartTime(nowStr);
+    const targetDate = date || todayStr;
+    if (targetDate === todayStr) {
+      let nextStart = "";
+      if (selectedGame?.fixedSlotBooking) {
+        const minDur = selectedGame.duration || 60;
+        const currentHours = currentTime.getHours();
+        const currentMinutes = currentTime.getMinutes();
+        const totalMinutes = currentHours * 60 + currentMinutes;
+        const remainder = totalMinutes % minDur;
+        const nextSlotMinutes = totalMinutes + (minDur - remainder);
+        const finalMinutes = nextSlotMinutes >= 1440 ? 0 : nextSlotMinutes;
+        
+        const h = Math.floor(finalMinutes / 60);
+        const m = finalMinutes % 60;
+        nextStart = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      } else {
+        nextStart = `${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}`;
+      }
+      if (startTime !== nextStart) {
+        setStartTime(nextStart);
+      }
     }
-  }, [currentTime, date, isTimeChangedByUser]);
+  }, [currentTime, date, selectedGame, isTimeChangedByUser, startTime]);
 
   const isPastTime = useMemo(() => {
     if (!date || !startTime) return false;
     const bookingStart = parseIST(date, startTime);
-    return bookingStart.getTime() < currentTime.getTime() - 5 * 60 * 1000;
+    return bookingStart.getTime() < currentTime.getTime() - 60 * 1000;
   }, [date, startTime, currentTime]);
 
   const isImmediate = useMemo(() => {
@@ -80,9 +102,6 @@ export default function VisitorBookingPage() {
     // Within 15 minutes of current time or in the past (today) is considered immediate/now
     return Math.abs(startMinutes - currentMinutes) <= 15 || startMinutes < currentMinutes;
   }, [date, startTime]);
-  const selectedGame = useMemo(() => {
-    return games.find((g) => g._id === selectedGameId) || null;
-  }, [games, selectedGameId]);
 
   const fixedSlots = useMemo(() => {
     if (!selectedGame || !selectedGame.fixedSlotBooking) return [];
@@ -162,9 +181,8 @@ export default function VisitorBookingPage() {
     
     // Strict real-time check using current millisecond timestamp
     if (date && startTime) {
-      const bookingStart = parseIST(date, startTime);
-      if (bookingStart.getTime() < currentTime.getTime()) {
-        setValidationError("Cannot book a slot in the past. Please select a future date and time.");
+      if (isPastTime && isTimeChangedByUser) {
+        setValidationError("Selected start time is now in the past. Please choose a future time.");
         return;
       }
     }
@@ -206,8 +224,32 @@ export default function VisitorBookingPage() {
   // Initialize date and start time with defaults on mount
   useEffect(() => {
     const now = new Date();
-    setDate(now.toLocaleDateString("en-CA"));
-    setStartTime(`${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`);
+    let defaultDate = now.toLocaleDateString("en-CA");
+    let defaultTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+    try {
+      const saved = sessionStorage.getItem("visitorBookingDraft");
+      if (saved) {
+        const draft = JSON.parse(saved);
+        if (draft.name) setName(draft.name);
+        if (draft.phone) setPhone(draft.phone);
+        if (draft.email) setEmail(draft.email);
+        if (draft.selectedGameId) setSelectedGameId(draft.selectedGameId);
+        if (draft.date) defaultDate = draft.date;
+        if (draft.startTime) {
+          defaultTime = draft.startTime;
+          setIsTimeChangedByUser(true);
+        }
+        if (draft.duration) setDuration(draft.duration);
+        if (draft.playersCount) setPlayersCount(draft.playersCount);
+        if (draft.selectedCourt) setSelectedCourt(draft.selectedCourt);
+      }
+    } catch (e) {
+      console.error("Error restoring visitor draft:", e);
+    }
+
+    setDate(defaultDate);
+    setStartTime(defaultTime);
   }, []);
 
 
@@ -424,6 +466,20 @@ export default function VisitorBookingPage() {
         setError(data.message || "Failed to create booking");
         return;
       }
+
+      // Save draft state
+      const draft = {
+        name,
+        phone,
+        email,
+        selectedGameId,
+        date,
+        startTime,
+        duration,
+        playersCount,
+        selectedCourt,
+      };
+      sessionStorage.setItem("visitorBookingDraft", JSON.stringify(draft));
 
       // Redirect to Payment Screen
       const paymentParams = new URLSearchParams({

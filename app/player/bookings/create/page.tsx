@@ -67,26 +67,43 @@ function BookSessionForm() {
     }
   }, [date]);
 
+  const selectedGame = useMemo(() => {
+    return games.find((g) => g._id === selectedGameId) || null;
+  }, [games, selectedGameId]);
+
   // Synchronize startTime live to the current time if not manually changed by the user, and the selected date is today
   useEffect(() => {
     if (isTimeChangedByUser) return;
     const todayStr = formatToISTDate(currentTime);
-    if (date === todayStr) {
-      const nowStr = `${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}`;
-      setStartTime(nowStr);
+    const targetDate = date || todayStr;
+    if (targetDate === todayStr) {
+      let nextStart = "";
+      if (selectedGame?.fixedSlotBooking) {
+        const minDur = selectedGame.duration || 60;
+        const currentHours = currentTime.getHours();
+        const currentMinutes = currentTime.getMinutes();
+        const totalMinutes = currentHours * 60 + currentMinutes;
+        const remainder = totalMinutes % minDur;
+        const nextSlotMinutes = totalMinutes + (minDur - remainder);
+        const finalMinutes = nextSlotMinutes >= 1440 ? 0 : nextSlotMinutes;
+        
+        const h = Math.floor(finalMinutes / 60);
+        const m = finalMinutes % 60;
+        nextStart = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      } else {
+        nextStart = `${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}`;
+      }
+      if (startTime !== nextStart) {
+        setStartTime(nextStart);
+      }
     }
-  }, [currentTime, date, isTimeChangedByUser]);
+  }, [currentTime, date, selectedGame, isTimeChangedByUser, startTime]);
 
   const isPastTime = useMemo(() => {
     if (!date || !startTime) return false;
     const bookingStart = parseIST(date, startTime);
-    return bookingStart.getTime() < currentTime.getTime() - 5 * 60 * 1000;
+    return bookingStart.getTime() < currentTime.getTime() - 60 * 1000;
   }, [date, startTime, currentTime]);
-
-
-  const selectedGame = useMemo(() => {
-    return games.find((g) => g._id === selectedGameId) || null;
-  }, [games, selectedGameId]);
 
   const fixedSlots = useMemo(() => {
     if (!selectedGame || !selectedGame.fixedSlotBooking) return [];
@@ -127,9 +144,8 @@ function BookSessionForm() {
 
   useEffect(() => {
     if (date && startTime) {
-      const bookingStart = parseIST(date, startTime);
-      if (bookingStart.getTime() < currentTime.getTime()) {
-        setValidationError("Cannot book a slot in the past. Please select a future date and time.");
+      if (isPastTime && isTimeChangedByUser) {
+        setValidationError("Selected start time is now in the past. Please choose a future time.");
         return;
       }
     }
@@ -186,6 +202,25 @@ function BookSessionForm() {
   useEffect(() => {
     loadGames();
     loadUser();
+
+    // Restore draft if returning from checkout
+    try {
+      const saved = sessionStorage.getItem("memberBookingDraft");
+      if (saved) {
+        const draft = JSON.parse(saved);
+        if (draft.selectedGameId) setSelectedGameId(draft.selectedGameId);
+        if (draft.date) setDate(draft.date);
+        if (draft.startTime) {
+          setStartTime(draft.startTime);
+          setIsTimeChangedByUser(true); // Mark as user touched / restored
+        }
+        if (draft.duration) setDuration(draft.duration);
+        if (draft.playersCount) setPlayersCount(draft.playersCount);
+        if (draft.selectedCourt) setSelectedCourt(draft.selectedCourt);
+      }
+    } catch (e) {
+      console.error("Error restoring member draft:", e);
+    }
   }, []);
 
   const [crossMidnight, setCrossMidnight] = useState(false);
@@ -363,6 +398,17 @@ function BookSessionForm() {
       setSubmitting(false);
 
       if (response.status === 402 && data.redirectPayment) {
+        // Save draft state
+        const draft = {
+          selectedGameId,
+          date,
+          startTime,
+          duration,
+          playersCount,
+          selectedCourt,
+        };
+        sessionStorage.setItem("memberBookingDraft", JSON.stringify(draft));
+
         // Exceeds limit or insufficient coins -> redirect to payment stub
         const params = new URLSearchParams({
           type: "booking",
@@ -386,6 +432,7 @@ function BookSessionForm() {
         return;
       }
 
+      sessionStorage.removeItem("memberBookingDraft");
       router.push("/player/dashboard");
     } catch (err) {
       console.error(err);
