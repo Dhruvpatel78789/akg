@@ -9,6 +9,7 @@ const CouponSchema = new Schema(
     maxDiscount: { type: Number, default: 0 }, // For PERCENTAGE coupons
     expiryDate: { type: Date },
     active: { type: Boolean, default: true },
+    hidden: { type: Boolean, default: false },
     usageLimit: { type: Number, default: 0 }, // 0 = unlimited
     usedCount: { type: Number, default: 0 },
     applicableOnMembership: { type: Boolean, default: false },

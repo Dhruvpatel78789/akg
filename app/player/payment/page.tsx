@@ -232,11 +232,27 @@ function UnifiedPaymentForm() {
   const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
   const [couponError, setCouponError] = useState("");
   const [couponLoading, setCouponLoading] = useState(false);
+  const [showManualCoupon, setShowManualCoupon] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [availableCoupons, setAvailableCoupons] = useState<any[]>([]);
+
+  // Load available coupons
+  useEffect(() => {
+    fetch("/api/player/coupons")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.coupons) {
+          setAvailableCoupons(data.coupons);
+        }
+      })
+      .catch((e) => console.error("Error loading coupons:", e));
+  }, []);
 
   const autoDiscountAmount = useMemo(() => {
+    if (appliedCoupon) return 0;
     if (!autoOffer) return 0;
     return autoOffer.discountAmount;
-  }, [autoOffer]);
+  }, [autoOffer, appliedCoupon]);
 
   const discountAmount = useMemo(() => {
     if (!appliedCoupon) return 0;
@@ -309,7 +325,7 @@ function UnifiedPaymentForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code: couponCode.trim(),
-          bookingAmount: amountToPay - autoDiscountAmount,
+          bookingAmount: amountToPay,
           isMembershipPurchase: type === "plan",
         }),
       });
@@ -724,19 +740,82 @@ function UnifiedPaymentForm() {
               <div className="space-y-2 text-left">
                 <span className="text-[10px] font-black uppercase text-gray-400">Apply Discount Coupon</span>
                 <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="ENTER COUPON CODE"
-                    value={couponCode}
-                    onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                    disabled={couponLoading || !!appliedCoupon}
-                    className="h-10 flex-1 border border-black/5 bg-gray-50 rounded-xl px-3 text-xs font-black uppercase outline-none focus:ring-1 focus:ring-[var(--primary)] disabled:opacity-60"
-                  />
+                  {availableCoupons.length > 0 && !appliedCoupon && !showManualCoupon ? (
+                    <div className="relative flex-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowDropdown(!showDropdown)}
+                        disabled={couponLoading}
+                        className="h-10 w-full border border-black/5 bg-gray-50 rounded-xl px-3 text-left text-xs font-black uppercase outline-none focus:ring-1 focus:ring-[var(--primary)] flex items-center justify-between cursor-pointer disabled:opacity-60"
+                      >
+                        <span>{couponCode || "-- SELECT COUPON --"}</span>
+                        <span className="text-gray-400">▼</span>
+                      </button>
+
+                      {showDropdown && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
+                          <ul className="absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-gray-150 rounded-2xl shadow-xl py-1 text-xs">
+                            {availableCoupons.map((c: any) => (
+                              <li
+                                key={c._id}
+                                onClick={() => {
+                                  setCouponCode(c.code);
+                                  setShowDropdown(false);
+                                }}
+                                className="px-4 py-2.5 hover:bg-gray-50 cursor-pointer flex flex-col gap-0.5 text-left border-b border-gray-50 last:border-b-0"
+                              >
+                                <span className="font-black text-gray-800 uppercase">{c.code}</span>
+                                {c.minBookingAmount > 0 && (
+                                  <span className="text-[10px] text-gray-400 font-bold">Minimum booking amount: ₹{c.minBookingAmount}</span>
+                                )}
+                              </li>
+                            ))}
+                            <li
+                              onClick={() => {
+                                setShowManualCoupon(true);
+                                setCouponCode("");
+                                setShowDropdown(false);
+                              }}
+                              className="px-4 py-2.5 hover:bg-gray-50 cursor-pointer text-left font-black text-blue-600 border-t border-gray-100"
+                            >
+                              Enter Code Manually...
+                            </li>
+                          </ul>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="relative flex-1 flex gap-1 items-center">
+                      <input
+                        type="text"
+                        placeholder="ENTER COUPON CODE"
+                        value={couponCode}
+                        onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                        disabled={couponLoading || !!appliedCoupon}
+                        className="h-10 w-full border border-black/5 bg-gray-50 rounded-xl px-3 text-xs font-black uppercase outline-none focus:ring-1 focus:ring-[var(--primary)] disabled:opacity-60"
+                      />
+                      {showManualCoupon && !appliedCoupon && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowManualCoupon(false);
+                            setCouponCode("");
+                          }}
+                          title="Back to dropdown selection"
+                          className="h-10 w-10 shrink-0 border border-black/5 bg-white text-gray-400 hover:text-gray-650 rounded-xl flex items-center justify-center cursor-pointer font-bold text-xs"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {appliedCoupon ? (
                     <button
                       onClick={() => {
                         setAppliedCoupon(null);
                         setCouponCode("");
+                        setShowManualCoupon(false);
                       }}
                       className="h-10 bg-red-50 text-red-700 hover:bg-red-100 font-black text-xs px-4 rounded-xl border border-red-200 transition"
                     >
@@ -775,7 +854,7 @@ function UnifiedPaymentForm() {
                   </div>
                 )}
 
-                {autoOffer && (
+                {autoOffer && autoDiscountAmount > 0 && (
                   <div className="flex justify-between items-center text-xs font-semibold text-emerald-600">
                     <span>Auto Offer: {autoOffer.name}</span>
                     <span>-₹{autoDiscountAmount}</span>

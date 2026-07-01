@@ -22,7 +22,6 @@ export async function checkCourtAvailability(gameId: string, bookingStart: Date,
   // Include pending bookings created within the last 10 minutes (reserved slots)
   const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
   const bookingQuery: any = {
-    gameId,
     status: { $in: ["BOOKED", "STARTED"] },
     softDeleted: false,
     startTime: { $lt: bookingEnd },
@@ -44,7 +43,6 @@ export async function checkCourtAvailability(gameId: string, bookingStart: Date,
     Court.find({ gameId, active: true, disabled: { $ne: true } }).lean(),
     Booking.find(bookingQuery).lean(),
     CourtBlock.find({
-      gameId,
       status: { $in: ["ACTIVE", "SCHEDULED"] },
       blockedFrom: { $lt: bookingEnd },
       blockedTo: { $gt: bookingStart }
@@ -59,7 +57,7 @@ export async function checkCourtAvailability(gameId: string, bookingStart: Date,
   }
 
   for (const court of courts) {
-    const isBooked = overlappingBookings.some((b) => b.court?.toLowerCase() === court.name.toLowerCase());
+    const isBooked = overlappingBookings.some((b) => b.court?.trim().toLowerCase() === court.name.trim().toLowerCase());
     
     // Ignore blocks that are configured to keep existing bookings if our booking is pre-existing (createdAt < block.createdAt)
     const isBlocked = overlappingBlocks.some((bl) => {

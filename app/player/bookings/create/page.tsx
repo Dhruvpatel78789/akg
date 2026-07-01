@@ -6,7 +6,7 @@ import { ArrowLeft, Home, Calendar, Clock, Users } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useMemo, Suspense } from "react";
-import { parseIST, formatToISTDate } from "@/lib/time";
+import { parseIST, formatToISTDate, formatToISTTime } from "@/lib/time";
 
 
 type Game = {
@@ -49,12 +49,23 @@ function BookSessionForm() {
   const [availableCourts, setAvailableCourts] = useState<string[]>([]);
   const [selectedCourt, setSelectedCourt] = useState("");
 
-  // Live clock synchronization
+  // Live clock synchronization with server drift safety
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
+    let drift = 0;
+    fetch("/api/time")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.serverTime) {
+          drift = new Date(data.serverTime).getTime() - Date.now();
+          setCurrentTime(new Date(Date.now() + drift));
+        }
+      })
+      .catch((e) => console.error("Error syncing server time:", e));
+
     const timer = setInterval(() => {
-      setCurrentTime(new Date());
+      setCurrentTime(new Date(Date.now() + drift));
     }, 1000);
     return () => clearInterval(timer);
   }, []);
@@ -80,8 +91,8 @@ function BookSessionForm() {
       let nextStart = "";
       if (selectedGame?.fixedSlotBooking) {
         const minDur = selectedGame.duration || 60;
-        const currentHours = currentTime.getHours();
-        const currentMinutes = currentTime.getMinutes();
+        const timeStr = formatToISTTime(currentTime);
+        const [currentHours, currentMinutes] = timeStr.split(":").map(Number);
         const totalMinutes = currentHours * 60 + currentMinutes;
         const remainder = totalMinutes % minDur;
         const nextSlotMinutes = totalMinutes + (minDur - remainder);
@@ -91,7 +102,7 @@ function BookSessionForm() {
         const m = finalMinutes % 60;
         nextStart = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
       } else {
-        nextStart = `${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}`;
+        nextStart = formatToISTTime(currentTime);
       }
       if (startTime !== nextStart) {
         setStartTime(nextStart);
@@ -102,7 +113,7 @@ function BookSessionForm() {
   const isPastTime = useMemo(() => {
     if (!date || !startTime) return false;
     const bookingStart = parseIST(date, startTime);
-    return bookingStart.getTime() < currentTime.getTime() - 60 * 1000;
+    return bookingStart.getTime() < currentTime.getTime() - 2 * 60 * 1000;
   }, [date, startTime, currentTime]);
 
   const fixedSlots = useMemo(() => {
@@ -359,14 +370,40 @@ function BookSessionForm() {
 
   async function handleBook(event: React.FormEvent) {
     event.preventDefault();
-    if (date && startTime) {
-      const bookingStart = parseIST(date, startTime);
-      if (bookingStart.getTime() < Date.now()) {
-        setError("Cannot book a slot in the past. Please select a future date and time.");
-        return;
+
+    let finalStartTime = startTime;
+    let finalEndTime = endTime;
+
+    if (!isTimeChangedByUser) {
+      const now = new Date();
+      if (selectedGame?.fixedSlotBooking) {
+        const minDur = selectedGame.duration || 60;
+        const currentHours = now.getHours();
+        const currentMinutes = now.getMinutes();
+        const totalMinutes = currentHours * 60 + currentMinutes;
+        const remainder = totalMinutes % minDur;
+        const nextSlotMinutes = totalMinutes + (minDur - remainder);
+        const finalMinutes = nextSlotMinutes >= 1440 ? 0 : nextSlotMinutes;
+        const h = Math.floor(finalMinutes / 60);
+        const m = finalMinutes % 60;
+        finalStartTime = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      } else {
+        finalStartTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
       }
+
+      // Recalculate end time
+      const [sh, sm] = finalStartTime.split(":").map(Number);
+      const totalMinutes = sh * 60 + sm + duration;
+      const eh = Math.floor((totalMinutes % (24 * 60)) / 60);
+      const em = totalMinutes % 60;
+      finalEndTime = `${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
     }
-    if (available === false || !date || !startTime || !endTime) {
+
+    if (isPastTime) {
+      setError("Cannot book a slot in the past. Please select a future date and time.");
+      return;
+    }
+    if (available === false || !date || !finalStartTime || !finalEndTime) {
       setError("Please select an available slot.");
       return;
     }
@@ -381,8 +418,8 @@ function BookSessionForm() {
         body: JSON.stringify({
           gameId: selectedGameId,
           date,
-          startTime,
-          endTime,
+          startTime: finalStartTime,
+          endTime: finalEndTime,
           durationMinutes: duration,
           playersCount,
           court: selectedCourt || undefined,
@@ -530,19 +567,15 @@ function BookSessionForm() {
                       </select>
                     ) : (
                       <input
-                        type="time"
+                        type="text"
                         required
+                        placeholder="HH:MM"
                         value={startTime}
                         onChange={(e) => {
                           setStartTime(e.target.value);
                           setIsTimeChangedByUser(true);
                         }}
-                        onClick={(e) => {
-                          try {
-                            e.currentTarget.showPicker();
-                          } catch (err) {}
-                        }}
-                        className="h-14 w-full rounded-2xl bg-[#EDEBE2] pl-5 pr-12 font-bold outline-none border-0 text-[var(--primary)] cursor-pointer"
+                        className="h-14 w-full rounded-2xl bg-[#EDEBE2] px-5 font-bold outline-none border-0 text-[var(--primary)]"
                       />
                     )}
                     <Clock size={18} className="absolute right-4 top-4.5 text-[var(--primary)]/70 pointer-events-none" />

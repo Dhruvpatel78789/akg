@@ -50,7 +50,6 @@ function getMinutes(start: string, end: string) {
 async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd: Date, excludeBookingId?: string) {
   const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
   const query: any = {
-    gameId,
     status: { $in: ["BOOKED", "STARTED"] },
     softDeleted: false,
     startTime: { $lt: bookingEnd },
@@ -71,7 +70,6 @@ async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd:
     Court.find({ gameId, active: true, disabled: { $ne: true } }).lean(),
     Booking.find(query).lean(),
     CourtBlock.find({
-      gameId,
       status: { $in: ["ACTIVE", "SCHEDULED"] },
       $or: [
         { blockedFrom: { $lt: bookingEnd }, blockedTo: { $gt: bookingStart } }
@@ -84,7 +82,7 @@ async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd:
   }
 
   for (const court of courts) {
-    const isBooked = overlappingBookings.some((b) => b.court?.toLowerCase() === court.name.toLowerCase());
+    const isBooked = overlappingBookings.some((b) => b.court?.trim().toLowerCase() === court.name.trim().toLowerCase());
     const isBlocked = overlappingBlocks.some((bl) => bl.courtId.toString() === court._id.toString());
 
     if (!isBooked && !isBlocked) {
@@ -214,7 +212,7 @@ export async function GET(request: Request) {
       const start = parseDateTime(date, startTime);
       const end = parseDateTime(date, endTime, crossMidnight ? 1 : 0);
 
-      if (start.getTime() < Date.now()) {
+      if (start.getTime() < Date.now() - 2 * 60 * 1000) {
         return NextResponse.json({
           success: true,
           available: false,
@@ -238,7 +236,6 @@ export async function GET(request: Request) {
         const { CourtBlock } = await import("@/models/CourtBlock");
         const courts = await Court.find({ gameId, active: true, disabled: { $ne: true } }).lean();
         const overlappingBookings = await Booking.find({
-          gameId,
           status: { $in: ["BOOKED", "STARTED"] },
           softDeleted: false,
           startTime: { $lt: end },
@@ -252,14 +249,13 @@ export async function GET(request: Request) {
         }).lean();
 
         const overlappingBlocks = await CourtBlock.find({
-          gameId,
           status: { $in: ["ACTIVE", "SCHEDULED"] },
           blockedFrom: { $lt: end },
           blockedTo: { $gt: start }
         }).lean();
 
         for (const court of courts) {
-          const isBooked = overlappingBookings.some((b) => b.court?.toLowerCase() === court.name.toLowerCase());
+          const isBooked = overlappingBookings.some((b) => b.court?.trim().toLowerCase() === court.name.trim().toLowerCase());
           const isBlocked = overlappingBlocks.some((bl) => bl.courtId.toString() === court._id.toString());
           if (!isBooked && !isBlocked) {
             availableCourts.push(court.name);
@@ -421,7 +417,7 @@ export async function POST(request: Request) {
       new Date(existingBookingForGrace.intentExpiresAt) > new Date();
 
     // If there's no active valid grace period, strictly validate that bookingStartTime is in the future
-    if (!hasValidGracePeriod && start.getTime() < Date.now()) {
+    if (!hasValidGracePeriod && start.getTime() < Date.now() - 2 * 60 * 1000) {
       return NextResponse.json({ message: "Cannot book a slot in the past. Please select a future date and time." }, { status: 400 });
     }
 
@@ -434,10 +430,8 @@ export async function POST(request: Request) {
     let finalCourt = avail.courtName;
     if (game.allowCourtSelection && userCourt) {
       // Verify chosen court is available
-      const overlappingBookings = await Booking.find({
-        gameId,
-        court: { $regex: new RegExp(`^${userCourt}$`, "i") },
-        _id: { $ne: bookingId ? new mongoose.Types.ObjectId(bookingId) : undefined },
+      const queryObj: any = {
+        court: { $regex: new RegExp(`^\\s*${userCourt.trim()}\\s*$`, "i") },
         status: { $in: ["BOOKED", "STARTED"] },
         softDeleted: false,
         startTime: { $lt: end },
@@ -448,7 +442,11 @@ export async function POST(request: Request) {
           { paymentStatus: "PENDING", createdAt: { $gte: new Date(Date.now() - 10 * 60 * 1000) } },
           { paymentStatus: "PENDING", intentExpiresAt: { $gt: new Date() } }
         ]
-      });
+      };
+      if (bookingId && mongoose.Types.ObjectId.isValid(bookingId)) {
+        queryObj._id = { $ne: new mongoose.Types.ObjectId(bookingId) };
+      }
+      const overlappingBookings = await Booking.find(queryObj);
       if (overlappingBookings.length > 0) {
         return NextResponse.json({ message: `Court ${userCourt} is not available for this slot.` }, { status: 409 });
       }
@@ -509,7 +507,7 @@ export async function POST(request: Request) {
       if (coupon.expiryDate && new Date(coupon.expiryDate) < new Date()) {
         return NextResponse.json({ message: "Coupon has expired." }, { status: 400 });
       }
-      if (bookingCostAfterAuto < coupon.minBookingAmount) {
+      if (bookingCost < coupon.minBookingAmount) {
         return NextResponse.json({ message: `Minimum amount to use this coupon is ₹${coupon.minBookingAmount}` }, { status: 400 });
       }
       if (coupon.usageLimit > 0 && coupon.usedCount >= coupon.usageLimit) {
@@ -520,18 +518,23 @@ export async function POST(request: Request) {
         return NextResponse.json({ message: "You have already used this coupon code." }, { status: 400 });
       }
 
+      // If a coupon is applied, do not apply auto offers
+      autoDiscountAmount = 0;
+      autoDiscountName = "";
+      const basePriceForCoupon = bookingCost;
+
       if (coupon.type === "FLAT") {
         discountAmount = coupon.value;
       } else if (coupon.type === "PERCENTAGE") {
-        discountAmount = (bookingCostAfterAuto * coupon.value) / 100;
+        discountAmount = (basePriceForCoupon * coupon.value) / 100;
         if (coupon.maxDiscount > 0 && discountAmount > coupon.maxDiscount) {
           discountAmount = coupon.maxDiscount;
         }
       }
-      discountAmount = Math.min(discountAmount, bookingCostAfterAuto);
+      discountAmount = Math.min(discountAmount, basePriceForCoupon);
     }
 
-    const expectedPrice = Math.max(0, bookingCostAfterAuto - discountAmount);
+    const expectedPrice = Math.max(0, bookingCost - autoDiscountAmount - discountAmount);
     const isFree = expectedPrice <= 0;
 
     const isPayAtCounter = paymentMethod === "PAY_AT_COUNTER";

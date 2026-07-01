@@ -18,7 +18,6 @@ async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd:
   // Include pending bookings that are created within the last 10 minutes (reserved slots)
   const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
   const overlappingBookings = await Booking.find({
-    gameId,
     status: { $in: ["BOOKED", "STARTED"] },
     softDeleted: false,
     startTime: { $lt: bookingEnd },
@@ -31,7 +30,6 @@ async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd:
   }).lean();
 
   const overlappingBlocks = await CourtBlock.find({
-    gameId,
     status: { $in: ["ACTIVE", "SCHEDULED"] },
     $or: [
       { blockedFrom: { $lt: bookingEnd }, blockedTo: { $gt: bookingStart } }
@@ -39,7 +37,7 @@ async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd:
   }).lean();
 
   for (const court of courts) {
-    const isBooked = overlappingBookings.some((b) => b.court?.toLowerCase() === court.name.toLowerCase());
+    const isBooked = overlappingBookings.some((b) => b.court?.trim().toLowerCase() === court.name.trim().toLowerCase());
     const isBlocked = overlappingBlocks.some((bl) => bl.courtId.toString() === court._id.toString());
 
     if (!isBooked && !isBlocked) {
@@ -102,7 +100,7 @@ export async function POST(request: Request) {
     const end = parseDateTime(date, endTime, crossMidnight ? 1 : 0);
 
     // Strict validation: selectedStartTime >= currentServerTime (using server timestamp)
-    if (start.getTime() < Date.now()) {
+    if (start.getTime() < Date.now() - 2 * 60 * 1000) {
       return NextResponse.json({ message: "Cannot book a slot in the past. Please select a future date and time." }, { status: 400 });
     }
 
@@ -169,8 +167,7 @@ export async function POST(request: Request) {
       const specAvail = await checkCourtAvailability(gameId, start, end);
       // Wait, let's verify if userCourt is indeed free
       const overlappingBookings = await Booking.find({
-        gameId,
-        court: { $regex: new RegExp(`^${userCourt}$`, "i") },
+        court: { $regex: new RegExp(`^\\s*${userCourt.trim()}\\s*$`, "i") },
         status: { $in: ["BOOKED", "STARTED"] },
         softDeleted: false,
         startTime: { $lt: end },

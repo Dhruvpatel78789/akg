@@ -28,7 +28,6 @@ async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd:
 
   const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
   const query: any = {
-    gameId,
     status: { $in: ["BOOKED", "STARTED"] },
     softDeleted: false,
     startTime: { $lt: bookingEnd },
@@ -48,14 +47,13 @@ async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd:
   const overlappingBookings = await Booking.find(query).lean();
 
   const overlappingBlocks = await CourtBlock.find({
-    gameId,
     status: { $in: ["ACTIVE", "SCHEDULED"] },
     blockedFrom: { $lt: bookingEnd },
     blockedTo: { $gt: bookingStart }
   }).lean();
 
   for (const court of courts) {
-    const isBooked = overlappingBookings.some((b) => b.court?.toLowerCase() === court.name.toLowerCase());
+    const isBooked = overlappingBookings.some((b) => b.court?.trim().toLowerCase() === court.name.trim().toLowerCase());
     
     const isBlocked = overlappingBlocks.some((bl) => {
       if (bl.courtId.toString() !== court._id.toString()) return false;

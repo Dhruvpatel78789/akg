@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Plus, Search, Calendar, Clock, User, Phone, ShieldCheck, X, RefreshCw } from "lucide-react";
-import { formatToISTDate, formatToISTDateTimeString } from "@/lib/time";
+import { Plus, Search, Calendar, Clock, User, Phone, ShieldCheck, X, RefreshCw, Info } from "lucide-react";
+import { formatToISTDate, formatToISTDateTimeString, formatToISTTime, parseIST } from "@/lib/time";
 
 type Booking = {
   _id: string;
@@ -41,6 +41,7 @@ export default function AdminPassesPage() {
   const [activeTab, setActiveTab] = useState<"passes" | "payments">("passes");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [showOldPending, setShowOldPending] = useState(false);
   const [user, setUser] = useState<any>(null);
 
   // Create Pass Modal State
@@ -63,13 +64,24 @@ export default function AdminPassesPage() {
   const [message, setMessage] = useState("");
   const [validationError, setValidationError] = useState("");
   
-  // Live clock synchronization states
+  // Live clock synchronization states with server drift safety
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isTimeChangedByUser, setIsTimeChangedByUser] = useState(false);
 
   useEffect(() => {
+    let drift = 0;
+    fetch("/api/time")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.serverTime) {
+          drift = new Date(data.serverTime).getTime() - Date.now();
+          setCurrentTime(new Date(Date.now() + drift));
+        }
+      })
+      .catch((e) => console.error("Error syncing server time:", e));
+
     const timer = setInterval(() => {
-      setCurrentTime(new Date());
+      setCurrentTime(new Date(Date.now() + drift));
     }, 1000);
     return () => clearInterval(timer);
   }, []);
@@ -179,6 +191,10 @@ export default function AdminPassesPage() {
   }, [bookings]);
 
   const filteredBookings = useMemo(() => {
+    const now = new Date();
+    const twoDaysAgo = new Date();
+    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+
     let result = processedBookings.filter((b) => {
       const term = searchQuery.toLowerCase();
       const matchesSearch =
@@ -190,8 +206,36 @@ export default function AdminPassesPage() {
       if (!matchesSearch) return false;
 
       const isPassTabStatus = ["ADVANCE", "ACTIVE", "OVERTIME"].includes(b.derivedStatus);
-      if (activeTab === "passes" && !isPassTabStatus) return false;
-      if (activeTab === "payments" && isPassTabStatus) return false;
+
+      // Passes & Sessions (Active & Upcoming) tab
+      if (activeTab === "passes") {
+        if (!isPassTabStatus) return false;
+        // Don't display completed entries (where endTime is in the past, or booking status is COMPLETED)
+        if (new Date(b.endTime) < now || b.status === "COMPLETED" || b.derivedStatus === "COMPLETED") {
+          return false;
+        }
+      }
+
+      // Payments & History tab
+      if (activeTab === "payments") {
+        if (b.status === "COMPLETED" || b.derivedStatus === "COMPLETED" || b.status === "CANCELLED" || b.derivedStatus === "CANCELLED") {
+          return false;
+        }
+        if (new Date(b.endTime) < now) {
+          return false;
+        }
+
+        const isCompletedPass = isPassTabStatus && (new Date(b.endTime) < now || b.status === "COMPLETED" || b.derivedStatus === "COMPLETED");
+        if (isPassTabStatus && !isCompletedPass) return false;
+
+        // Hide pending payment entries of 2 days back unless showOldPending is true
+        if (b.derivedStatus === "PENDING_PAYMENT") {
+          const bookingTime = new Date(b.startTime);
+          if (bookingTime < twoDaysAgo && !showOldPending) {
+            return false;
+          }
+        }
+      }
 
       if (statusFilter !== "ALL" && b.derivedStatus !== statusFilter) return false;
 
@@ -225,7 +269,7 @@ export default function AdminPassesPage() {
     });
 
     return result;
-  }, [processedBookings, activeTab, searchQuery, statusFilter]);
+  }, [processedBookings, activeTab, searchQuery, statusFilter, showOldPending]);
 
   async function handleCreateSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -282,7 +326,7 @@ export default function AdminPassesPage() {
   const isPastTime = useMemo(() => {
     if (!createForm.date || !createForm.startTime) return false;
     const bookingStart = parseIST(createForm.date, createForm.startTime);
-    return bookingStart.getTime() < currentTime.getTime() - 60 * 1000;
+    return bookingStart.getTime() < currentTime.getTime() - 2 * 60 * 1000;
   }, [createForm.date, createForm.startTime, currentTime]);
 
   // Synchronize startTime live to current time / nearest slot
@@ -294,8 +338,8 @@ export default function AdminPassesPage() {
       let nextStart = "";
       if (selectedGame?.fixedSlotBooking) {
         const minDur = selectedGame.duration || 60;
-        const currentHours = currentTime.getHours();
-        const currentMinutes = currentTime.getMinutes();
+        const timeStr = formatToISTTime(currentTime);
+        const [currentHours, currentMinutes] = timeStr.split(":").map(Number);
         const totalMinutes = currentHours * 60 + currentMinutes;
         const remainder = totalMinutes % minDur;
         const nextSlotMinutes = totalMinutes + (minDur - remainder);
@@ -305,7 +349,7 @@ export default function AdminPassesPage() {
         const m = finalMinutes % 60;
         nextStart = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
       } else {
-        nextStart = `${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}`;
+        nextStart = formatToISTTime(currentTime);
       }
       if (createForm.startTime !== nextStart) {
         setCreateForm((prev) => ({ ...prev, startTime: nextStart }));
@@ -473,27 +517,42 @@ export default function AdminPassesPage() {
           <Search size={15} className="absolute left-3.5 top-3 text-gray-400" />
         </div>
 
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-10 rounded-xl bg-gray-50 px-3 text-xs font-bold border border-gray-200 outline-none cursor-pointer w-full sm:w-auto"
-        >
-          <option value="ALL">All Statuses</option>
-          {activeTab === "passes" ? (
-            <>
-              <option value="ADVANCE">Advance Bookings</option>
-              <option value="ACTIVE">Active Sessions</option>
-              <option value="OVERTIME">Overtime Sessions</option>
-            </>
-          ) : (
-            <>
-              <option value="PENDING_PAYMENT">Pending Payments</option>
-              <option value="FAILED">Failed Payments</option>
-              <option value="COMPLETED">Completed</option>
-              <option value="CANCELLED">Cancelled</option>
-            </>
+        <div className="flex items-center gap-2">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="h-10 rounded-xl bg-gray-50 px-3 text-xs font-bold border border-gray-200 outline-none cursor-pointer w-full sm:w-auto"
+          >
+            <option value="ALL">All Statuses</option>
+            {activeTab === "passes" ? (
+              <>
+                <option value="ADVANCE">Advance Bookings</option>
+                <option value="ACTIVE">Active Sessions</option>
+                <option value="OVERTIME">Overtime Sessions</option>
+              </>
+            ) : (
+              <>
+                <option value="PENDING_PAYMENT">Pending Payments</option>
+                <option value="FAILED">Failed Payments</option>
+              </>
+            )}
+          </select>
+
+          {activeTab === "payments" && (
+            <button
+              onClick={() => setShowOldPending(!showOldPending)}
+              title={showOldPending ? "Hide older pending payments" : "Show older pending payments (older than 2 days)"}
+              className={`h-10 px-3 rounded-xl border flex items-center justify-center gap-1.5 text-xs font-black transition-all cursor-pointer ${
+                showOldPending 
+                  ? "bg-blue-50 border-blue-200 text-blue-600" 
+                  : "bg-gray-50 border-gray-200 text-gray-400 hover:text-gray-650"
+              }`}
+            >
+              <Info size={16} />
+              <span>{showOldPending ? "Showing Old Pending" : "Show Old Pending"}</span>
+            </button>
           )}
-        </select>
+        </div>
       </div>
 
       {/* Grid view for passes (responsive card layout) */}
@@ -540,7 +599,7 @@ export default function AdminPassesPage() {
                   <div>
                     <span className="text-[9px] sm:text-[10px] uppercase text-gray-400 font-black">Time Slot</span>
                     <p className="text-xs sm:text-sm text-[var(--primary)] font-black truncate">
-                      {formatToISTDateTimeString(b.startTime).split(",")[1]?.trim()}
+                      {formatToISTDateTimeString(b.startTime).split(",")[1]?.trim()} - {formatToISTDateTimeString(b.endTime).split(",")[1]?.trim()}
                     </p>
                   </div>
                   <div>

@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Calendar, Clock, User, Users, CheckCircle, AlertCircle } from "lucide-react";
-import { parseIST, formatToISTDate } from "@/lib/time";
+import { parseIST, formatToISTDate, formatToISTTime } from "@/lib/time";
 
 
 
@@ -39,12 +39,23 @@ export default function CompanyBookingCreatePage() {
   const [suggestions, setSuggestions] = useState<Colleague[]>([]);
   const [selectedColleagues, setSelectedColleagues] = useState<Colleague[]>([]);
 
-  // Live clock synchronization
+  // Live clock synchronization with server drift safety
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
+    let drift = 0;
+    fetch("/api/time")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.serverTime) {
+          drift = new Date(data.serverTime).getTime() - Date.now();
+          setCurrentTime(new Date(Date.now() + drift));
+        }
+      })
+      .catch((e) => console.error("Error syncing server time:", e));
+
     const timer = setInterval(() => {
-      setCurrentTime(new Date());
+      setCurrentTime(new Date(Date.now() + drift));
     }, 1000);
     return () => clearInterval(timer);
   }, []);
@@ -62,8 +73,8 @@ export default function CompanyBookingCreatePage() {
       let nextStart = "";
       if (selectedGame?.fixedSlotBooking) {
         const minDur = selectedGame.duration || 60;
-        const currentHours = currentTime.getHours();
-        const currentMinutes = currentTime.getMinutes();
+        const timeStr = formatToISTTime(currentTime);
+        const [currentHours, currentMinutes] = timeStr.split(":").map(Number);
         const totalMinutes = currentHours * 60 + currentMinutes;
         const remainder = totalMinutes % minDur;
         const nextSlotMinutes = totalMinutes + (minDur - remainder);
@@ -73,7 +84,7 @@ export default function CompanyBookingCreatePage() {
         const m = finalMinutes % 60;
         nextStart = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
       } else {
-        nextStart = `${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}`;
+        nextStart = formatToISTTime(currentTime);
       }
       if (startTime !== nextStart) {
         setStartTime(nextStart);
@@ -84,7 +95,7 @@ export default function CompanyBookingCreatePage() {
   const isPastTime = useMemo(() => {
     if (!date || !startTime) return false;
     const bookingStart = parseIST(date, startTime);
-    return bookingStart.getTime() < currentTime.getTime() - 60 * 1000;
+    return bookingStart.getTime() < currentTime.getTime() - 2 * 60 * 1000;
   }, [date, startTime, currentTime]);
 
   const fixedSlots = useMemo(() => {
@@ -332,6 +343,35 @@ export default function CompanyBookingCreatePage() {
   // Handle Submit Booking
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    let finalStartTime = startTime;
+    let finalEndTime = endTime;
+
+    if (!isTimeChangedByUser) {
+      const now = new Date();
+      if (selectedGame?.fixedSlotBooking) {
+        const minDur = selectedGame.duration || 60;
+        const currentHours = now.getHours();
+        const currentMinutes = now.getMinutes();
+        const totalMinutes = currentHours * 60 + currentMinutes;
+        const remainder = totalMinutes % minDur;
+        const nextSlotMinutes = totalMinutes + (minDur - remainder);
+        const finalMinutes = nextSlotMinutes >= 1440 ? 0 : nextSlotMinutes;
+        const h = Math.floor(finalMinutes / 60);
+        const m = finalMinutes % 60;
+        finalStartTime = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      } else {
+        finalStartTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+      }
+
+      // Recalculate end time
+      const [sh, sm] = finalStartTime.split(":").map(Number);
+      const totalMinutes = sh * 60 + sm + duration;
+      const eh = Math.floor((totalMinutes % (24 * 60)) / 60);
+      const em = totalMinutes % 60;
+      finalEndTime = `${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
+    }
+
     if (isPastTime || available === false) {
       setError("Cannot book a slot in the past. Please select a future date and time.");
       return;
@@ -344,8 +384,8 @@ export default function CompanyBookingCreatePage() {
       const payload = {
         gameId: selectedGameId,
         date,
-        startTime,
-        endTime,
+        startTime: finalStartTime,
+        endTime: finalEndTime,
         coPlayerIds: selectedColleagues.map((c) => c.id),
       };
 
@@ -451,14 +491,15 @@ export default function CompanyBookingCreatePage() {
                   </select>
                 ) : (
                   <input
-                    type="time"
+                    type="text"
+                    placeholder="HH:MM"
                     value={startTime}
                     onChange={(e) => {
                       setStartTime(e.target.value);
                       setIsTimeChangedByUser(true);
                     }}
                     required
-                    className="h-14 w-full rounded-full bg-[var(--background)] pl-5 pr-12 font-bold outline-none ring-1 ring-black/5"
+                    className="h-14 w-full rounded-full bg-[var(--background)] px-5 font-bold outline-none ring-1 ring-black/5"
                   />
                 )}
                 <Clock className="absolute right-4 top-4.5 text-[var(--text-muted)] pointer-events-none" size={18} />
