@@ -49,10 +49,11 @@ export async function POST(request: Request, { params }: RouteParams) {
     const originalPriceStr = intent.metadata?.get("originalPrice") || (intent.metadata as any)?.originalPrice;
     const originalPrice = originalPriceStr ? Number(originalPriceStr) : intent.price;
 
-    if (originalPrice < coupon.minBookingAmount) {
+    const minVal = coupon.minimumOrderValue ?? coupon.minBookingAmount ?? 0;
+    if (originalPrice < minVal) {
       return NextResponse.json({
         success: false,
-        message: `Minimum booking amount to use this coupon is ₹${coupon.minBookingAmount}`
+        message: `This coupon is valid only on orders of ₹${minVal} or more.`
       }, { status: 400 });
     }
 
@@ -71,12 +72,19 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     // Calculate discount
     let discount = 0;
-    if (coupon.type === "FLAT") {
-      discount = coupon.value;
-    } else if (coupon.type === "PERCENTAGE") {
-      discount = (originalPrice * coupon.value) / 100;
-      if (coupon.maxDiscount > 0 && discount > coupon.maxDiscount) {
-        discount = coupon.maxDiscount;
+    const type = coupon.discountType || coupon.type;
+    const value = coupon.discountValue ?? coupon.value ?? 0;
+    const maxDiscount = coupon.maximumDiscount ?? coupon.maxDiscount;
+
+    if (type === "FLAT") {
+      discount = value;
+      if (maxDiscount !== undefined && maxDiscount !== null && maxDiscount > 0) {
+        discount = Math.min(discount, maxDiscount);
+      }
+    } else if (type === "PERCENTAGE") {
+      discount = (originalPrice * value) / 100;
+      if (maxDiscount !== undefined && maxDiscount !== null && maxDiscount > 0) {
+        discount = Math.min(discount, maxDiscount);
       }
     }
     discount = Math.min(discount, originalPrice);

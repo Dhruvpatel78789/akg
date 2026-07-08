@@ -258,12 +258,19 @@ function UnifiedPaymentForm() {
     if (!appliedCoupon) return 0;
     const base = Math.max(0, amountToPay - autoDiscountAmount);
     let disc = 0;
-    if (appliedCoupon.type === "FLAT") {
-      disc = appliedCoupon.value;
-    } else if (appliedCoupon.type === "PERCENTAGE") {
-      disc = (base * appliedCoupon.value) / 100;
-      if (appliedCoupon.maxDiscount > 0 && disc > appliedCoupon.maxDiscount) {
-        disc = appliedCoupon.maxDiscount;
+    const type = appliedCoupon.type;
+    const value = appliedCoupon.value;
+    const maxDiscount = appliedCoupon.maxDiscount;
+
+    if (type === "FLAT") {
+      disc = value;
+      if (maxDiscount > 0) {
+        disc = Math.min(disc, maxDiscount);
+      }
+    } else if (type === "PERCENTAGE") {
+      disc = (base * value) / 100;
+      if (maxDiscount > 0 && disc > maxDiscount) {
+        disc = maxDiscount;
       }
     }
     return Math.min(disc, base);
@@ -333,9 +340,10 @@ function UnifiedPaymentForm() {
       if (res.ok && data.success) {
         setAppliedCoupon({
           _id: data.couponId,
-          code: data.code,
-          type: data.discountAmount === data.finalAmount ? "FLAT" : "PERCENTAGE",
-          value: data.discountAmount,
+          code: data.couponCode || data.code,
+          type: data.discountType || data.type,
+          value: data.discountValue !== undefined ? data.discountValue : data.value,
+          maxDiscount: data.maxDiscount || 0,
         });
       } else {
         setCouponError(data.message || "Invalid coupon code");
@@ -847,23 +855,21 @@ function UnifiedPaymentForm() {
 
               {/* Bill Details Breakdown */}
               <div className="space-y-2 mb-4">
-                {(autoOffer || appliedCoupon) && (
-                  <div className="flex justify-between items-center text-xs font-semibold text-gray-500">
-                    <span>Base Price</span>
-                    <span>₹{amountToPay}</span>
-                  </div>
-                )}
+                <div className="flex justify-between items-center text-xs font-semibold text-gray-500">
+                  <span>Subtotal</span>
+                  <span>₹{amountToPay}</span>
+                </div>
 
                 {autoOffer && autoDiscountAmount > 0 && (
                   <div className="flex justify-between items-center text-xs font-semibold text-emerald-600">
-                    <span>Auto Offer: {autoOffer.name}</span>
+                    <span>Auto Discount: {autoOffer.name}</span>
                     <span>-₹{autoDiscountAmount}</span>
                   </div>
                 )}
 
                 {appliedCoupon && (
                   <div className="flex justify-between items-center text-xs font-semibold text-emerald-600">
-                    <span>Coupon Applied: {appliedCoupon.code}</span>
+                    <span>Coupon Discount</span>
                     <span>-₹{discountAmount}</span>
                   </div>
                 )}
@@ -873,7 +879,7 @@ function UnifiedPaymentForm() {
 
               <div className="flex justify-between items-baseline">
                 <span className="text-sm font-black text-[var(--primary)]">
-                  {(appliedCoupon || autoOffer) ? "Adjusted Total Price" : "Total Price"}
+                  Payable Amount
                 </span>
                 <span className="text-3xl font-black text-[var(--primary)]">
                   ₹{finalAmountToPay}

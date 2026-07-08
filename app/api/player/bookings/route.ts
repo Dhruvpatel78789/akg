@@ -507,8 +507,9 @@ export async function POST(request: Request) {
       if (coupon.expiryDate && new Date(coupon.expiryDate) < new Date()) {
         return NextResponse.json({ message: "Coupon has expired." }, { status: 400 });
       }
-      if (bookingCost < coupon.minBookingAmount) {
-        return NextResponse.json({ message: `Minimum amount to use this coupon is ₹${coupon.minBookingAmount}` }, { status: 400 });
+      const minVal = coupon.minimumOrderValue ?? coupon.minBookingAmount ?? 0;
+      if (bookingCost < minVal) {
+        return NextResponse.json({ message: `This coupon is valid only on orders of ₹${minVal} or more.` }, { status: 400 });
       }
       if (coupon.usageLimit > 0 && coupon.usedCount >= coupon.usageLimit) {
         return NextResponse.json({ message: "Coupon usage limit reached." }, { status: 400 });
@@ -523,12 +524,19 @@ export async function POST(request: Request) {
       autoDiscountName = "";
       const basePriceForCoupon = bookingCost;
 
-      if (coupon.type === "FLAT") {
-        discountAmount = coupon.value;
-      } else if (coupon.type === "PERCENTAGE") {
-        discountAmount = (basePriceForCoupon * coupon.value) / 100;
-        if (coupon.maxDiscount > 0 && discountAmount > coupon.maxDiscount) {
-          discountAmount = coupon.maxDiscount;
+      const type = coupon.discountType || coupon.type;
+      const value = coupon.discountValue ?? coupon.value ?? 0;
+      const maxDiscount = coupon.maximumDiscount ?? coupon.maxDiscount;
+
+      if (type === "FLAT") {
+        discountAmount = value;
+        if (maxDiscount !== undefined && maxDiscount !== null && maxDiscount > 0) {
+          discountAmount = Math.min(discountAmount, maxDiscount);
+        }
+      } else if (type === "PERCENTAGE") {
+        discountAmount = (basePriceForCoupon * value) / 100;
+        if (maxDiscount !== undefined && maxDiscount !== null && maxDiscount > 0) {
+          discountAmount = Math.min(discountAmount, maxDiscount);
         }
       }
       discountAmount = Math.min(discountAmount, basePriceForCoupon);
