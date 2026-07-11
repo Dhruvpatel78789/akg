@@ -124,22 +124,39 @@ export async function POST(request: Request) {
 
     // Find or create Visitor User
     let user = await User.findOne({ phone });
+    const isCounter = paymentMethod === "PAY_AT_COUNTER";
+
     if (!user) {
       const uniqueEmail = email || `${phone}@visitor.akshargamezone.com`;
       // Check if email already registered to someone else
       const existingEmail = await User.findOne({ email: uniqueEmail });
       const finalEmail = existingEmail ? `${phone}_${Date.now()}@visitor.akshargamezone.com` : uniqueEmail;
 
+      const bcrypt = await import("bcryptjs");
+      const passwordHash = isCounter 
+        ? await bcrypt.hash("NEW1234", 10) 
+        : "visitor_dummy_password_hash";
+
       user = await User.create({
         name,
         phone,
         email: finalEmail,
         dob: dob ? new Date(dob) : undefined,
-        role: "VISITOR",
-        passwordHash: "visitor_dummy_password_hash",
+        role: isCounter ? "PLAYER" : "VISITOR",
+        passwordHash,
+        mustChangePassword: isCounter,
+        accountSource: isCounter ? "VISITOR_BOOKING" : "SELF_REGISTERED"
       });
     } else {
-      // Update email or DOB if provided and not set
+      // If user exists and is a VISITOR, and payment is PAY_AT_COUNTER, promote to PLAYER
+      if (user.role === "VISITOR" && isCounter) {
+        const bcrypt = await import("bcryptjs");
+        user.role = "PLAYER";
+        user.mustChangePassword = true;
+        user.accountSource = "VISITOR_BOOKING";
+        user.passwordHash = await bcrypt.hash("NEW1234", 10);
+      }
+
       let updated = false;
       if (email && (!user.email || user.email.includes("@visitor."))) {
         user.email = email;
@@ -149,9 +166,7 @@ export async function POST(request: Request) {
         user.dob = new Date(dob);
         updated = true;
       }
-      if (updated) {
-        await user.save();
-      }
+      await user.save();
     }
 
     // Check slot availability

@@ -40,22 +40,9 @@ export default async function MembershipLayout({
     redirect("/auth/login");
   }
 
-  // Visitor Dashboard access logic: only allow if they have an active booking or session
-  if (dbUser.role === "VISITOR" && !isPublicPath) {
-    const now = new Date();
-    const activeBookingOrSession = await Booking.findOne({
-      userId: dbUser._id,
-      paymentStatus: "PAID",
-      status: { $in: ["BOOKED", "STARTED"] },
-      $or: [
-        { status: "STARTED" },
-        { status: "BOOKED", startTime: { $gte: now } }
-      ]
-    }).lean();
-
-    if (!activeBookingOrSession) {
-      redirect("/");
-    }
+  // Redirect if they must change their password, except on the profile page itself
+  if (dbUser.mustChangePassword && pathname !== "/player/profile") {
+    redirect("/player/profile?changePasswordRequired=true");
   }
 
   return <>{children}</>;

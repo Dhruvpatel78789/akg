@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { User, Lock, Calendar, Eye, EyeOff, CheckCircle2, AlertCircle, ChevronLeft, Coins } from "lucide-react";
 
 type UserProfile = {
@@ -12,6 +12,14 @@ type UserProfile = {
   email: string;
   dob?: string;
   coins: number;
+  role?: string;
+  mustChangePassword?: boolean;
+  activePlanId?: string;
+  coinPlanExpiryDate?: string;
+  coinsAvailable?: number;
+  coinsFrozen?: number;
+  coinsFrozenReason?: string;
+  coinsFrozenAt?: string;
 };
 
 function HamburgerIcon() {
@@ -24,17 +32,22 @@ function HamburgerIcon() {
   );
 }
 
-export default function PlayerProfilePage() {
+function PlayerProfileForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const changePasswordRequired = searchParams.get("changePasswordRequired") === "true";
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // DOB states
+  // Profile Edit states
+  const [nameInput, setNameInput] = useState("");
+  const [phoneInput, setPhoneInput] = useState("");
+  const [emailInput, setEmailInput] = useState("");
   const [dobInput, setDobInput] = useState("");
-  const [dobError, setDobError] = useState("");
-  const [dobSuccess, setDobSuccess] = useState("");
-  const [dobSubmitting, setDobSubmitting] = useState(false);
+  const [profileError, setProfileError] = useState("");
+  const [profileSuccess, setProfileSuccess] = useState("");
+  const [profileSubmitting, setProfileSubmitting] = useState(false);
 
   // Password states
   const [currentPassword, setCurrentPassword] = useState("");
@@ -58,6 +71,9 @@ export default function PlayerProfilePage() {
       const data = await res.json();
       if (res.ok && data?.user) {
         setProfile(data.user);
+        setNameInput(data.user.name || "");
+        setPhoneInput(data.user.phone || "");
+        setEmailInput(data.user.email || "");
         if (data.user.dob) {
           setDobInput(new Date(data.user.dob).toISOString().split("T")[0]);
         }
@@ -75,31 +91,60 @@ export default function PlayerProfilePage() {
     loadProfile();
   }, []);
 
-  async function handleSaveDob(e: React.FormEvent) {
+  async function handleSaveProfile(e: React.FormEvent) {
     e.preventDefault();
-    if (!dobInput) return;
+    setProfileError("");
+    setProfileSuccess("");
 
-    setDobSubmitting(true);
-    setDobError("");
-    setDobSuccess("");
+    if (!nameInput.trim()) {
+      setProfileError("Name is required.");
+      return;
+    }
+    if (!/^\d{10}$/.test(phoneInput.trim())) {
+      setProfileError("Phone number must be exactly 10 digits.");
+      return;
+    }
+    if (emailInput.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailInput.trim())) {
+      setProfileError("Please enter a valid email address.");
+      return;
+    }
+    if (dobInput) {
+      const selectedDob = new Date(dobInput);
+      if (selectedDob > new Date()) {
+        setProfileError("Date of Birth cannot be in the future.");
+        return;
+      }
+    }
 
+    setProfileSubmitting(true);
     try {
       const res = await fetch("/api/player/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dob: dobInput }),
+        body: JSON.stringify({
+          name: nameInput,
+          phone: phoneInput,
+          email: emailInput,
+          dob: dobInput || null
+        })
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setDobSuccess("Date of Birth added successfully!");
-        setProfile((prev) => prev ? { ...prev, dob: dobInput } : null);
+        setProfileSuccess("Profile updated successfully!");
+        setProfile((prev) => prev ? {
+          ...prev,
+          name: nameInput,
+          phone: phoneInput,
+          email: emailInput,
+          dob: dobInput || undefined
+        } : null);
       } else {
-        setDobError(data.message || "Failed to save Date of Birth");
+        setProfileError(data.message || "Failed to update profile.");
       }
     } catch {
-      setDobError("Connection error. Please try again.");
+      setProfileError("Connection error. Please try again.");
     } finally {
-      setDobSubmitting(false);
+      setProfileSubmitting(false);
     }
   }
 
@@ -134,6 +179,7 @@ export default function PlayerProfilePage() {
       const data = await res.json();
       if (res.ok && data.success) {
         setPasswordSuccess("Password changed successfully.");
+        setProfile((prev) => prev ? { ...prev, mustChangePassword: false } : null);
         setCurrentPassword("");
         setNewPassword("");
         setConfirmPassword("");
@@ -180,10 +226,11 @@ export default function PlayerProfilePage() {
           <h1 className="text-xl font-black text-[var(--primary)]">My Profile</h1>
 
           <div className="flex items-center gap-3">
-            <Link href="/player/membership/transactions" className="flex h-16 min-w-16 items-center justify-center gap-1 rounded-full bg-white px-4 shadow-sm ring-1 ring-black/5">
+            <Link href="/player/coins/history" className="flex h-16 min-w-16 items-center justify-center gap-1 rounded-full bg-white px-4 shadow-sm ring-1 ring-black/5">
               <Coins size={23} className="text-[var(--primary)] animate-coin" />
               <span className="text-sm font-black text-[var(--primary)]">
-                {profile.coins}
+                {profile.coinsAvailable ?? profile.coins ?? 0} Coins
+                {profile.coinsFrozen ? (profile.coinsFrozen > 0 && <span className="ml-0.5 text-xs">❄️</span>) : null}
               </span>
             </Link>
 
@@ -230,73 +277,115 @@ export default function PlayerProfilePage() {
           </div>
         </header>
 
+        {(changePasswordRequired || profile?.mustChangePassword) && (
+          <div className="mt-4 bg-amber-50 border border-amber-200 rounded-[2rem] p-5 text-sm font-bold text-amber-800 flex flex-col gap-1.5 shadow-sm">
+            <h4 className="flex items-center gap-2 text-base font-black">
+              <AlertCircle size={20} className="text-amber-600 animate-pulse" />
+              Password Change Required
+            </h4>
+            <p className="text-xs">
+              For security reasons, your account was created with a temporary default password. Please update your password below to secure your account. Other actions are disabled until this is completed.
+            </p>
+          </div>
+        )}
+
         {/* Profile Card */}
         <section className="mt-4 rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-black/5 space-y-6">
-          <div className="flex items-center gap-4 border-b pb-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--primary)]/10 text-[var(--primary)]">
-              <User size={32} />
-            </div>
-            <div>
-              <h2 className="text-xl font-black text-[var(--primary)]">{profile.name}</h2>
-              <p className="text-xs font-bold text-[var(--text-muted)]">Player Profile Account</p>
-            </div>
-          </div>
-
-          <div className="grid gap-4 text-sm font-bold">
-            <div className="flex justify-between border-b pb-2.5 border-gray-100">
-              <span className="text-gray-400">Phone</span>
-              <span className="text-[var(--primary)]">{profile.phone}</span>
-            </div>
-            <div className="flex justify-between border-b pb-2.5 border-gray-100">
-              <span className="text-gray-400">Email</span>
-              <span className="text-[var(--primary)]">{profile.email}</span>
-            </div>
-
-            {/* DOB Section */}
-            <div className="border-b pb-2.5 border-gray-100 flex flex-col gap-2">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-400">Date of Birth</span>
-                {profile.dob ? (
-                  <span className="text-[var(--primary)]">{formatDob(profile.dob)}</span>
-                ) : (
-                  <span className="text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full text-xs font-black">Missing DOB</span>
-                )}
+          <div className="flex items-center justify-between border-b pb-4">
+            <div className="flex items-center gap-4">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--primary)]/10 text-[var(--primary)]">
+                <User size={32} />
               </div>
+              <div>
+                <h2 className="text-xl font-black text-[var(--primary)]">{profile.name}</h2>
+                <p className="text-xs font-bold text-[var(--text-muted)]">Player Profile Account</p>
+              </div>
+            </div>
 
-              {!profile.dob ? (
-                <form onSubmit={handleSaveDob} className="mt-2 flex gap-2">
-                  <input
-                    type="date"
-                    required
-                    value={dobInput}
-                    onChange={(e) => setDobInput(e.target.value)}
-                    className="h-11 flex-1 rounded-xl bg-gray-50 px-3 text-xs outline-none border border-gray-100 focus:ring-1 focus:ring-[var(--primary)] text-gray-700 font-black"
-                  />
-                  <button
-                    type="submit"
-                    disabled={dobSubmitting}
-                    className="h-11 rounded-xl bg-[var(--primary)] text-white px-4 text-xs font-black hover:opacity-90 active:scale-95 transition"
-                  >
-                    {dobSubmitting ? "Adding..." : "Add DOB"}
-                  </button>
-                </form>
-              ) : null}
-
-              {dobError && (
-                <p className="text-xs font-bold text-red-500 mt-1 flex items-center gap-1">
-                  <AlertCircle size={12} />
-                  {dobError}
-                </p>
-              )}
-
-              {dobSuccess && (
-                <p className="text-xs font-bold text-emerald-600 mt-1 flex items-center gap-1">
-                  <CheckCircle2 size={12} />
-                  {dobSuccess}
-                </p>
+            {/* Account Type Badge */}
+            <div className="text-right">
+              {profile.activePlanId ? (
+                profile.coinPlanExpiryDate ? (
+                  <span className="bg-purple-50 text-purple-800 border border-purple-100 px-3 py-1.5 rounded-full text-xs font-black">COIN MEMBER</span>
+                ) : (
+                  <span className="bg-emerald-50 text-emerald-800 border border-emerald-100 px-3 py-1.5 rounded-full text-xs font-black">MEMBER</span>
+                )
+              ) : (
+                <span className="bg-gray-100 text-gray-700 border border-gray-200 px-3 py-1.5 rounded-full text-xs font-black">PLAYER</span>
               )}
             </div>
           </div>
+
+          <form onSubmit={handleSaveProfile} className="space-y-4">
+            <div className="grid gap-1">
+              <label className="text-xs font-bold text-[var(--text-muted)]">Name</label>
+              <input
+                required
+                type="text"
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                className="w-full h-11 rounded-xl bg-gray-50 px-4 text-xs outline-none border border-gray-100 font-bold focus:ring-1 focus:ring-[var(--primary)] text-gray-700"
+              />
+            </div>
+
+            <div className="grid gap-1">
+              <label className="text-xs font-bold text-[var(--text-muted)]">Phone Number</label>
+              <input
+                required
+                type="text"
+                value={phoneInput}
+                onChange={(e) => setPhoneInput(e.target.value)}
+                className="w-full h-11 rounded-xl bg-gray-50 px-4 text-xs outline-none border border-gray-100 font-bold focus:ring-1 focus:ring-[var(--primary)] text-gray-700"
+              />
+            </div>
+
+            <div className="grid gap-1">
+              <label className="text-xs font-bold text-[var(--text-muted)]">Email Address</label>
+              <input
+                type="email"
+                placeholder="Add your email"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                className="w-full h-11 rounded-xl bg-gray-50 px-4 text-xs outline-none border border-gray-100 font-bold focus:ring-1 focus:ring-[var(--primary)] text-gray-700"
+              />
+            </div>
+
+            <div className="grid gap-1">
+              <label className="text-xs font-bold text-[var(--text-muted)]">Date of Birth</label>
+              <input
+                type="date"
+                value={dobInput}
+                onChange={(e) => setDobInput(e.target.value)}
+                disabled={!!profile.dob}
+                className="w-full h-11 rounded-xl bg-gray-55 px-4 text-xs outline-none border border-gray-100 font-bold focus:ring-1 focus:ring-[var(--primary)] text-gray-700 disabled:opacity-70"
+              />
+              {profile.dob && (
+                <p className="text-[10px] text-gray-400 font-bold mt-0.5">Date of Birth is set and cannot be changed.</p>
+              )}
+            </div>
+
+            {profileError && (
+              <p className="text-xs font-bold text-red-500 mt-1 flex items-center gap-1">
+                <AlertCircle size={12} />
+                {profileError}
+              </p>
+            )}
+
+            {profileSuccess && (
+              <p className="text-xs font-bold text-emerald-600 mt-1 flex items-center gap-1">
+                <CheckCircle2 size={12} />
+                {profileSuccess}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={profileSubmitting || !!profile.mustChangePassword}
+              className="h-11 rounded-full bg-[var(--primary)] text-white px-6 text-xs font-black hover:opacity-90 active:scale-95 transition disabled:opacity-50"
+            >
+              {profileSubmitting ? "Saving..." : profile.mustChangePassword ? "Change Password First" : "Save Profile Details"}
+            </button>
+          </form>
         </section>
 
         {/* Change Password Card */}
@@ -395,5 +484,17 @@ export default function PlayerProfilePage() {
         </section>
       </section>
     </main>
+  );
+}
+
+export default function PlayerProfilePage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-[var(--background)] flex items-center justify-center">
+        <p className="font-black text-[var(--primary)] text-lg animate-pulse">Loading profile...</p>
+      </main>
+    }>
+      <PlayerProfileForm />
+    </Suspense>
   );
 }

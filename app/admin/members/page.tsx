@@ -91,6 +91,47 @@ export default function AdminMembersPage() {
   const [coinReason, setCoinReason] = useState("");
   const [adjustingCoins, setAdjustingCoins] = useState(false);
 
+  // Create Membership States
+  const [showCreateMembershipModal, setShowCreateMembershipModal] = useState(false);
+  const [games, setGames] = useState<any[]>([]);
+  const [plans, setPlans] = useState<any[]>([]);
+  const [createMemForm, setCreateMemForm] = useState({
+    assignmentType: "MEMBERSHIP", // "MEMBERSHIP" | "COIN_PLAN" | "ADD_COINS"
+    name: "",
+    phone: "",
+    email: "",
+    planId: "",
+    durationIndex: 0,
+    gameId: "",
+    startTime: "",
+    endTime: "",
+    startDate: new Date().toISOString().split("T")[0],
+    coinsToAdd: "",
+    reason: "",
+    offlinePaymentNote: ""
+  });
+  const [matches, setMatches] = useState<any[]>([]);
+  const [needsConfirmation, setNeedsConfirmation] = useState(false);
+  const [confirmUserId, setConfirmUserId] = useState("");
+  const [existingPlayer, setExistingPlayer] = useState<any | null>(null);
+  const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [visitorConversionRequired, setVisitorConversionRequired] = useState(false);
+  const [visitorConversionPlayer, setVisitorConversionPlayer] = useState<any | null>(null);
+  const [createMemSubmitting, setCreateMemSubmitting] = useState(false);
+  const [createMemError, setCreateMemError] = useState("");
+  const [createMemSuccess, setCreateMemSuccess] = useState("");
+
+  // Reset Password States
+  const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
+  const [resetPasswordTargetId, setResetPasswordTargetId] = useState<string | null>(null);
+  const [adminConfirmPassword, setAdminConfirmPassword] = useState("");
+  const [resetPasswordReason, setResetPasswordReason] = useState("");
+  const [resetPasswordSubmitting, setResetPasswordSubmitting] = useState(false);
+  const [resetPasswordError, setResetPasswordError] = useState("");
+  const [resetPasswordSuccess, setResetPasswordSuccess] = useState("");
+
   async function loadMembers(isBackground = false) {
     if (!isBackground) {
       if (members.length === 0) setInitialLoading(true);
@@ -150,6 +191,263 @@ export default function AdminMembersPage() {
 
     setMessage("Member updated");
     loadMembers();
+  }
+
+  async function handleCreateMembershipClick() {
+    setCreateMemError("");
+    setCreateMemSuccess("");
+    setCreateMemForm({
+      assignmentType: "MEMBERSHIP",
+      name: "",
+      phone: "",
+      email: "",
+      planId: "",
+      durationIndex: 0,
+      gameId: "",
+      startTime: "",
+      endTime: "",
+      startDate: new Date().toISOString().split("T")[0],
+      coinsToAdd: "",
+      reason: "",
+      offlinePaymentNote: ""
+    });
+    setMatches([]);
+    setNeedsConfirmation(false);
+    setConfirmUserId("");
+    setExistingPlayer(null);
+    setSearchQuery("");
+    setVisitorConversionRequired(false);
+    setVisitorConversionPlayer(null);
+    setSearchSuggestions([]);
+    setShowSuggestions(false);
+    setShowCreateMembershipModal(true);
+
+    try {
+      const [resGames, resPlans] = await Promise.all([
+        fetch("/api/games"),
+        fetch("/api/admin/plans")
+      ]);
+      const dataGames = await resGames.json();
+      const dataPlans = await resPlans.json();
+      setGames(dataGames.games || []);
+      setPlans((dataPlans.plans || []).filter((p: any) => p.active && !p.softDeleted));
+    } catch (err: any) {
+      setCreateMemError("Failed to load plans and games list: " + err.message);
+    }
+  }
+
+  async function handlePlayerSearch(val: string) {
+    setSearchQuery(val);
+    if (!val || val.trim().length < 2) {
+      setSearchSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/admin/player-search?q=${encodeURIComponent(val)}`);
+      const data = await res.json();
+      if (res.ok && data.results) {
+        setSearchSuggestions(data.results);
+        setShowSuggestions(data.results.length > 0);
+      }
+    } catch (err) {
+      console.error("Autocomplete search failed", err);
+    }
+  }
+
+  async function handleSelectSuggestion(player: any) {
+    setConfirmUserId(player.id);
+    setSearchSuggestions([]);
+    setShowSuggestions(false);
+    setSearchQuery("");
+
+    // Check if Visitor Conversion is required
+    if (player.accountType === "Visitor" || player.role === "VISITOR") {
+      setVisitorConversionPlayer(player);
+      setVisitorConversionRequired(true);
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/admin/members/create-membership", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assignmentType: createMemForm.assignmentType,
+          phone: player.phone,
+          confirmUserId: player.id,
+          checkOnly: true
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.player) {
+        setExistingPlayer(data.player);
+        setCreateMemForm(prev => ({
+          ...prev,
+          name: data.player.name,
+          phone: data.player.phone,
+          email: data.player.email || ""
+        }));
+      } else {
+        setExistingPlayer({
+          _id: player.id,
+          name: player.name,
+          phone: player.phone,
+          email: player.email,
+          coins: player.coins ?? 0,
+          currentMembership: player.currentMembership || "None",
+          currentCoinPlan: player.currentCoinPlan || "None"
+        });
+        setCreateMemForm(prev => ({
+          ...prev,
+          name: player.name,
+          phone: player.phone,
+          email: player.email || ""
+        }));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleConfirmVisitorConversion() {
+    if (!visitorConversionPlayer) return;
+    const player = visitorConversionPlayer;
+    setVisitorConversionRequired(false);
+    setVisitorConversionPlayer(null);
+
+    try {
+      const res = await fetch("/api/admin/members/create-membership", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assignmentType: createMemForm.assignmentType,
+          phone: player.phone,
+          confirmUserId: player.id,
+          checkOnly: true
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.player) {
+        setExistingPlayer(data.player);
+        setCreateMemForm(prev => ({
+          ...prev,
+          name: data.player.name,
+          phone: data.player.phone,
+          email: data.player.email || ""
+        }));
+      } else {
+        setExistingPlayer({
+          _id: player.id,
+          name: player.name,
+          phone: player.phone,
+          email: player.email,
+          coins: player.coins ?? 0,
+          currentMembership: player.currentMembership || "None",
+          currentCoinPlan: player.currentCoinPlan || "None"
+        });
+        setCreateMemForm(prev => ({
+          ...prev,
+          name: player.name,
+          phone: player.phone,
+          email: player.email || ""
+        }));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleCreateMembershipSubmit(e: React.FormEvent, checkOnly = false) {
+    e.preventDefault();
+    setCreateMemError("");
+    setCreateMemSuccess("");
+    setCreateMemSubmitting(true);
+
+    try {
+      const res = await fetch("/api/admin/members/create-membership", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...createMemForm,
+          confirmUserId,
+          checkOnly
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setCreateMemError(data.message || "Failed to submit assignment.");
+        setCreateMemSubmitting(false);
+        return;
+      }
+
+      if (data.needsConfirmation) {
+        setMatches(data.matches);
+        setNeedsConfirmation(true);
+        setCreateMemSubmitting(false);
+        return;
+      }
+
+      if (checkOnly) {
+        // Validation succeeded without duplicates, proceed to final activation
+        await handleCreateMembershipSubmit(e, false);
+        return;
+      }
+
+      setCreateMemSuccess(data.message || "Action processed successfully!");
+      setTimeout(() => {
+        setShowCreateMembershipModal(false);
+        loadMembers();
+      }, 1500);
+
+    } catch (err: any) {
+      setCreateMemError("Network error: " + err.message);
+    } finally {
+      setCreateMemSubmitting(false);
+    }
+  }
+
+  function handleResetPasswordClick(userId: string) {
+    setResetPasswordTargetId(userId);
+    setAdminConfirmPassword("");
+    setResetPasswordReason("");
+    setResetPasswordError("");
+    setResetPasswordSuccess("");
+    setShowResetPasswordModal(true);
+  }
+
+  async function handleResetPasswordSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setResetPasswordError("");
+    setResetPasswordSuccess("");
+    setResetPasswordSubmitting(true);
+
+    try {
+      const res = await fetch(`/api/admin/members/${resetPasswordTargetId}/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adminPassword: adminConfirmPassword,
+          reason: resetPasswordReason
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setResetPasswordSuccess(data.message);
+        setTimeout(() => {
+          setShowResetPasswordModal(false);
+        }, 2000);
+      } else {
+        setResetPasswordError(data.message || "Password reset failed.");
+      }
+    } catch (err: any) {
+      setResetPasswordError("Network error: " + err.message);
+    } finally {
+      setResetPasswordSubmitting(false);
+    }
   }
 
   function handleCSVExport() {
@@ -389,13 +687,22 @@ export default function AdminMembersPage() {
             View all members, coin balance, membership days left and reschedule access.
           </p>
         </div>
-        <button
-          onClick={handleCSVExport}
-          className="rounded-full bg-[var(--primary)] px-6 py-3 text-sm font-black text-white hover:opacity-90 active:scale-95 transition-all shadow-sm flex items-center gap-2"
-        >
-          <FileSpreadsheet size={16} />
-          Export CSV
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleCreateMembershipClick}
+            className="rounded-full bg-[var(--primary)] px-6 py-3 text-sm font-black text-white hover:opacity-90 active:scale-95 transition-all shadow-sm flex items-center gap-2"
+          >
+            <User size={16} />
+            Assign Membership / Coins
+          </button>
+          <button
+            onClick={handleCSVExport}
+            className="rounded-full bg-white border px-6 py-3 text-sm font-black text-[var(--primary)] hover:bg-gray-50 active:scale-95 transition-all shadow-sm flex items-center gap-2"
+          >
+            <FileSpreadsheet size={16} />
+            Export CSV
+          </button>
+        </div>
       </div>
 
       {message && (
@@ -690,13 +997,21 @@ export default function AdminMembersPage() {
                     <p className="text-2xl font-black text-rose-600 mt-1">{activeProfile.cancellations.length} Bookings</p>
                   </div>
 
-                  <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 col-span-1 md:col-span-3 space-y-2">
+                  <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 col-span-1 md:col-span-3 space-y-4">
                     <h4 className="font-black text-[var(--primary)] border-b pb-1">Additional Stats</h4>
                     <div className="grid grid-cols-2 gap-4 text-xs font-bold text-gray-700">
                       <p>Coins Balance: <span className="font-black">{activeProfile.user.coins}</span></p>
                       <p>Date of Birth: <span className="font-black">{activeProfile.user.dob ? new Date(activeProfile.user.dob).toLocaleDateString("en-IN") : "Not provided"}</span></p>
                       <p>Completed Matches: <span className="font-black">{activeProfile.playedSessions.length} Matches</span></p>
                       <p>Total Refunds Logged: <span className="font-black">{activeProfile.refunds.length} Transactions</span></p>
+                    </div>
+                    <div className="pt-3 border-t flex justify-end">
+                      <button
+                        onClick={() => handleResetPasswordClick(activeProfile.user._id)}
+                        className="h-10 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs transition"
+                      >
+                        Reset Password
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -921,6 +1236,515 @@ export default function AdminMembersPage() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+      {/* Assign Membership / Coins Modal */}
+      {showCreateMembershipModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden ring-1 ring-black/5 animate-[flip_0.2s_ease-out]">
+            <header className="px-6 py-4 border-b flex items-center justify-between bg-gray-50 shrink-0">
+              <h2 className="text-lg font-black text-[var(--primary)] flex items-center gap-2">
+                <User size={18} />
+                Assign Membership / Coins
+              </h2>
+              <button
+                onClick={() => setShowCreateMembershipModal(false)}
+                className="h-8 w-8 text-gray-400 hover:text-gray-650 hover:bg-gray-100 rounded-full flex items-center justify-center font-bold"
+              >
+                ✕
+              </button>
+            </header>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleCreateMembershipSubmit(e, !needsConfirmation);
+              }}
+              className="flex-1 overflow-y-auto p-6 space-y-4 text-xs font-semibold text-gray-700"
+            >
+              {createMemError && (
+                <p className="bg-red-50 text-red-700 border border-red-100 rounded-2xl p-4 font-black">
+                  ⚠️ {createMemError}
+                </p>
+              )}
+
+              {createMemSuccess && (
+                <p className="bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-2xl p-4 font-black">
+                  ✓ {createMemSuccess}
+                </p>
+              )}
+
+              {needsConfirmation ? (
+                <div className="space-y-4">
+                  <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 text-amber-800">
+                    <p className="font-black text-sm">Matches Found</p>
+                    <p className="text-xs mt-1">
+                      We found existing accounts with the same phone number or email address. Select one of the accounts below to assign this plan, or close this window to edit details.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    {matches.map((m) => (
+                      <div
+                        key={m._id}
+                        onClick={() => setConfirmUserId(m._id)}
+                        className={`p-4 border rounded-2xl cursor-pointer flex items-center justify-between transition ${
+                          confirmUserId === m._id
+                            ? "border-[var(--primary)] bg-emerald-50/20 ring-1 ring-[var(--primary)]"
+                            : "border-gray-150 hover:bg-gray-50"
+                        }`}
+                      >
+                        <div>
+                          <p className="font-black text-sm text-[var(--primary)]">{m.name}</p>
+                          <p className="text-xs text-gray-500 font-semibold mt-1">
+                            Phone: {m.phone} • Email: {m.email}
+                          </p>
+                          <p className="text-[10px] text-gray-400 mt-0.5">
+                            Wallet: {m.coins} Coins • Registered: {new Date(m.createdAt).toLocaleDateString("en-IN")}
+                          </p>
+                        </div>
+                        <div className="h-6 w-6 rounded-full border flex items-center justify-center font-bold text-xs">
+                          {confirmUserId === m._id ? "✓" : ""}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={createMemSubmitting || !confirmUserId}
+                    className="h-12 w-full mt-4 rounded-full bg-[var(--primary)] text-white font-black hover:opacity-90 active:scale-95 transition flex items-center justify-center disabled:opacity-50"
+                  >
+                    {createMemSubmitting ? "Processing..." : "Confirm & Mark as Paid"}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Member Loading & Suggestion Flow */}
+                  {existingPlayer ? (
+                    <div className="bg-emerald-50 border border-emerald-150 rounded-2xl p-4 space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="bg-emerald-600 text-white font-black text-[9px] uppercase px-2 py-0.5 rounded-full">Existing Member Found</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExistingPlayer(null);
+                            setConfirmUserId("");
+                          }}
+                          className="text-xs font-black text-emerald-800 underline hover:text-emerald-950"
+                        >
+                          Change Member
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs font-bold text-emerald-900 mt-1">
+                        <p>Name: <span className="font-black">{existingPlayer.name}</span></p>
+                        <p>Phone: <span className="font-black">{existingPlayer.phone}</span></p>
+                        <p>Email: <span className="font-black">{(existingPlayer.email && !existingPlayer.email.includes("@visitor.")) ? existingPlayer.email : "None"}</span></p>
+                        <p>Coins Balance: <span className="font-black">{existingPlayer.coins} Coins</span></p>
+                        <p>Current Membership: <span className="font-black">{existingPlayer.currentMembership}</span></p>
+                        <p>Current Coin Plan: <span className="font-black">{existingPlayer.currentCoinPlan}</span></p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {/* Search Member or Visitor Autocomplete */}
+                      <div className="relative grid gap-1">
+                        <span className="text-[10px] font-black uppercase text-gray-400">Search Member or Visitor</span>
+                        <input
+                          type="text"
+                          placeholder="Type Name, Phone, Email or Booking name to search..."
+                          value={searchQuery}
+                          onChange={(e) => handlePlayerSearch(e.target.value)}
+                          className="h-10 bg-gray-50 rounded-xl px-3 border outline-none text-xs font-bold focus:ring-1 focus:ring-[var(--primary)] text-gray-700"
+                        />
+                        {showSuggestions && searchSuggestions.length > 0 && (
+                          <div className="absolute top-15 z-55 left-0 right-0 max-h-48 overflow-y-auto bg-white border border-gray-150 rounded-xl shadow-lg divide-y divide-gray-100">
+                            {searchSuggestions.map((s) => {
+                              const masked = s.phone.length >= 4 ? "XXXXXX" + s.phone.slice(-4) : s.phone;
+                              const lastBookingDate = s.lastBookingAt ? new Date(s.lastBookingAt).toLocaleDateString("en-IN") : "N/A";
+                              const dispEmail = (s.email && !s.email.includes("@visitor.")) ? s.email : "None";
+                              return (
+                                <div
+                                  key={s.id}
+                                  onClick={() => handleSelectSuggestion(s)}
+                                  className="p-3 cursor-pointer hover:bg-gray-50 flex items-center justify-between text-xs font-bold text-gray-700"
+                                >
+                                  <div className="space-y-0.5">
+                                    <p className="font-black text-gray-800">{s.name}</p>
+                                    <p className="text-[10px] text-gray-400">
+                                      {masked} • {dispEmail === "None" ? "No Email" : dispEmail}
+                                    </p>
+                                    <p className="text-[9px] text-gray-450 font-medium">
+                                      Type: <span className="font-bold">{s.accountType}</span> • Coins: {s.coins} • Last Booking: {lastBookingDate}
+                                    </p>
+                                  </div>
+                                  <span className="text-[9px] bg-[var(--primary)]/10 text-[var(--primary)] px-2.5 py-0.5 rounded-full font-black uppercase">Use</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      {visitorConversionRequired && visitorConversionPlayer && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-3">
+                          <p className="text-xs font-black text-amber-800">
+                            ⚠️ This visitor does not have a login account yet. Create member account and continue?
+                          </p>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={handleConfirmVisitorConversion}
+                              className="px-3 h-8 rounded-lg bg-amber-600 text-white font-black text-[10px] hover:bg-amber-700 transition"
+                            >
+                              Convert to Member
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setVisitorConversionRequired(false);
+                                setVisitorConversionPlayer(null);
+                              }}
+                              className="px-3 h-8 rounded-lg border border-amber-300 text-amber-700 font-bold text-[10px] hover:bg-amber-100/55 transition"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="grid gap-1">
+                          <span className="text-[10px] font-black uppercase text-gray-400">Phone Number (10 digits)</span>
+                          <input
+                            required
+                            type="text"
+                            placeholder="e.g. 9876543210"
+                            value={createMemForm.phone}
+                            onChange={(e) => setCreateMemForm(prev => ({ ...prev, phone: e.target.value }))}
+                            className="h-10 bg-gray-50 rounded-xl px-3 border outline-none text-xs font-bold focus:ring-1 focus:ring-[var(--primary)]"
+                          />
+                        </label>
+
+                        <label className="grid gap-1">
+                          <span className="text-[10px] font-black uppercase text-gray-400">Member Name</span>
+                          <input
+                            required
+                            type="text"
+                            placeholder="Member full name"
+                            value={createMemForm.name}
+                            onChange={(e) => setCreateMemForm(prev => ({ ...prev, name: e.target.value }))}
+                            className="h-10 bg-gray-50 rounded-xl px-3 border outline-none text-xs font-bold focus:ring-1 focus:ring-[var(--primary)]"
+                          />
+                        </label>
+                      </div>
+
+                      <label className="grid gap-1">
+                        <span className="text-[10px] font-black uppercase text-gray-400">Email Address (Optional)</span>
+                        <input
+                          type="email"
+                          placeholder="e.g. member@domain.com"
+                          value={createMemForm.email}
+                          onChange={(e) => setCreateMemForm(prev => ({ ...prev, email: e.target.value }))}
+                          className="h-10 bg-gray-50 rounded-xl px-3 border outline-none text-xs font-bold focus:ring-1 focus:ring-[var(--primary)]"
+                        />
+                      </label>
+                    </div>
+                  )}
+
+                  {/* Assignment Type Selector */}
+                  <label className="grid gap-1">
+                    <span className="text-[10px] font-black uppercase text-gray-400">Assignment Type</span>
+                    <select
+                      value={createMemForm.assignmentType}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCreateMemForm(prev => ({
+                          ...prev,
+                          assignmentType: val,
+                          planId: "",
+                          durationIndex: 0,
+                          coinsToAdd: "",
+                          reason: ""
+                        }));
+                      }}
+                      className="h-10 bg-gray-50 rounded-xl px-3 border outline-none text-xs font-bold cursor-pointer"
+                    >
+                      <option value="MEMBERSHIP">Membership Plan</option>
+                      <option value="COIN_PLAN">Coin Plan</option>
+                      <option value="ADD_COINS">Add Coins</option>
+                    </select>
+                  </label>
+
+                  {/* Conditional Assignment Areas */}
+                  {createMemForm.assignmentType === "MEMBERSHIP" && (
+                    <div className="space-y-4">
+                      <label className="grid gap-1">
+                        <span className="text-[10px] font-black uppercase text-gray-400">Membership Plan</span>
+                        <select
+                          required
+                          value={createMemForm.planId}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setCreateMemForm(prev => ({ ...prev, planId: val, durationIndex: 0 }));
+                          }}
+                          className="h-10 bg-gray-50 rounded-xl px-3 border outline-none text-xs font-bold cursor-pointer"
+                        >
+                          <option value="">Select Membership plan</option>
+                          {plans
+                            .filter((p) => p.type === "FIXED")
+                            .map((p) => (
+                              <option key={p._id} value={p._id}>
+                                {p.name}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+
+                      {createMemForm.planId && (
+                        <div className="grid grid-cols-2 gap-3 bg-gray-50 p-4 rounded-2xl border">
+                          <label className="grid gap-1 col-span-2">
+                            <span className="text-[10px] font-black uppercase text-gray-400">Plan Duration</span>
+                            <select
+                              required
+                              value={createMemForm.durationIndex}
+                              onChange={(e) => setCreateMemForm(prev => ({ ...prev, durationIndex: Number(e.target.value) }))}
+                              className="h-10 bg-white rounded-xl px-3 border outline-none text-xs font-bold cursor-pointer"
+                            >
+                              {plans
+                                .find((p) => p._id === createMemForm.planId)
+                                ?.durations.map((d: any, idx: number) => (
+                                  <option key={idx} value={idx}>
+                                    {d.label} - ₹{d.finalPrice} ({d.totalDays} Days)
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+
+                          <label className="grid gap-1">
+                            <span className="text-[10px] font-black uppercase text-gray-400">Sport Game</span>
+                            <select
+                              value={createMemForm.gameId}
+                              onChange={(e) => setCreateMemForm(prev => ({ ...prev, gameId: e.target.value }))}
+                              className="h-10 bg-white rounded-xl px-3 border outline-none text-xs font-bold cursor-pointer"
+                            >
+                              <option value="">Select sport</option>
+                              {games.map((g) => (
+                                <option key={g._id} value={g._id}>
+                                  {g.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          <label className="grid gap-1">
+                            <span className="text-[10px] font-black uppercase text-gray-400">Start Date</span>
+                            <input
+                              type="date"
+                              required
+                              value={createMemForm.startDate}
+                              onChange={(e) => setCreateMemForm(prev => ({ ...prev, startDate: e.target.value }))}
+                              className="h-10 bg-white rounded-xl px-3 border outline-none text-xs font-bold"
+                            />
+                          </label>
+
+                          <label className="grid gap-1">
+                            <span className="text-[10px] font-black uppercase text-gray-400">Daily Slot Start Time</span>
+                            <input
+                              type="time"
+                              required
+                              value={createMemForm.startTime}
+                              onChange={(e) => setCreateMemForm(prev => ({ ...prev, startTime: e.target.value }))}
+                              className="h-10 bg-white rounded-xl px-3 border outline-none text-xs font-bold"
+                            />
+                          </label>
+
+                          <label className="grid gap-1">
+                            <span className="text-[10px] font-black uppercase text-gray-400">Daily Slot End Time</span>
+                            <input
+                              type="time"
+                              required
+                              value={createMemForm.endTime}
+                              onChange={(e) => setCreateMemForm(prev => ({ ...prev, endTime: e.target.value }))}
+                              className="h-10 bg-white rounded-xl px-3 border outline-none text-xs font-bold"
+                            />
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {createMemForm.assignmentType === "COIN_PLAN" && (
+                    <div className="space-y-4">
+                      <label className="grid gap-1">
+                        <span className="text-[10px] font-black uppercase text-gray-400">Coin Plan</span>
+                        <select
+                          required
+                          value={createMemForm.planId}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setCreateMemForm(prev => ({ ...prev, planId: val, durationIndex: 0 }));
+                          }}
+                          className="h-10 bg-gray-50 rounded-xl px-3 border outline-none text-xs font-bold cursor-pointer"
+                        >
+                          <option value="">Select Coin plan</option>
+                          {plans
+                            .filter((p) => p.type === "COINS")
+                            .map((p) => (
+                              <option key={p._id} value={p._id}>
+                                {p.name} ({p.coinsAmount || 0} Coins)
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+
+                      {createMemForm.planId && (
+                        <div className="grid grid-cols-2 gap-3 bg-gray-50 p-4 rounded-2xl border text-xs font-bold text-gray-700">
+                          <div className="col-span-2 space-y-1">
+                            <p>
+                              Price: <span className="font-black text-gray-900">₹{plans.find((p) => p._id === createMemForm.planId)?.price || 0}</span>
+                            </p>
+                            <p>
+                              Validity: <span className="font-black text-gray-900">{plans.find((p) => p._id === createMemForm.planId)?.validityDays || 30} Days</span>
+                            </p>
+                            <p>
+                              Coins Credited: <span className="font-black text-emerald-600">{(plans.find((p) => p._id === createMemForm.planId)?.coinsAmount || 0) + (plans.find((p) => p._id === createMemForm.planId)?.bonusCoins || 0)} Coins</span>
+                            </p>
+                          </div>
+
+                          <label className="grid gap-1 col-span-2 mt-2">
+                            <span className="text-[10px] font-black uppercase text-gray-400">Start Date</span>
+                            <input
+                              type="date"
+                              required
+                              value={createMemForm.startDate}
+                              onChange={(e) => setCreateMemForm(prev => ({ ...prev, startDate: e.target.value }))}
+                              className="h-10 bg-white rounded-xl px-3 border outline-none text-xs font-bold"
+                            />
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {createMemForm.assignmentType === "ADD_COINS" && (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="grid gap-1 col-span-2">
+                          <span className="text-[10px] font-black uppercase text-gray-400">Coins to Add</span>
+                          <input
+                            required
+                            type="number"
+                            min="1"
+                            placeholder="Enter coins amount"
+                            value={createMemForm.coinsToAdd}
+                            onChange={(e) => setCreateMemForm(prev => ({ ...prev, coinsToAdd: e.target.value }))}
+                            className="h-10 bg-gray-50 rounded-xl px-3 border outline-none text-xs font-bold focus:ring-1 focus:ring-[var(--primary)]"
+                          />
+                        </label>
+                      </div>
+
+                      <label className="grid gap-1">
+                        <span className="text-[10px] font-black uppercase text-gray-400">Reason</span>
+                        <input
+                          type="text"
+                          placeholder="e.g. Festival Bonus, Tournament Reward, customer compensation"
+                          value={createMemForm.reason}
+                          onChange={(e) => setCreateMemForm(prev => ({ ...prev, reason: e.target.value }))}
+                          className="h-10 bg-gray-50 rounded-xl px-3 border outline-none text-xs font-bold focus:ring-1 focus:ring-[var(--primary)]"
+                        />
+                      </label>
+                    </div>
+                  )}
+
+                  <label className="grid gap-1">
+                    <span className="text-[10px] font-black uppercase text-gray-400">Payment Notes / Custom Description</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. Cash received by admin at counter"
+                      value={createMemForm.offlinePaymentNote}
+                      onChange={(e) => setCreateMemForm(prev => ({ ...prev, offlinePaymentNote: e.target.value }))}
+                      className="h-10 bg-gray-50 rounded-xl px-3 border outline-none text-xs font-bold focus:ring-1 focus:ring-[var(--primary)]"
+                    />
+                  </label>
+
+                  <button
+                    type="submit"
+                    disabled={createMemSubmitting}
+                    className="h-12 w-full mt-4 rounded-full bg-[var(--primary)] text-white font-black hover:opacity-90 active:scale-95 transition flex items-center justify-center"
+                  >
+                    {createMemSubmitting ? "Validating..." : "Confirm & Mark as Paid"}
+                  </button>
+                </div>
+              )}
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Password Confirmation Modal */}
+      {showResetPasswordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl w-full max-w-md p-6 shadow-2xl overflow-hidden ring-1 ring-black/5 animate-[flip_0.2s_ease-out] space-y-4">
+            <header className="border-b pb-2 flex items-center justify-between">
+              <h3 className="text-lg font-black text-rose-650">Confirm Reset Password</h3>
+              <button
+                onClick={() => setShowResetPasswordModal(false)}
+                className="h-8 w-8 text-gray-400 hover:text-gray-650 hover:bg-gray-100 rounded-full flex items-center justify-center font-bold"
+              >
+                ✕
+              </button>
+            </header>
+
+            <form onSubmit={handleResetPasswordSubmit} className="space-y-4 text-xs font-bold text-gray-700">
+              {resetPasswordError && (
+                <p className="bg-red-50 text-red-700 border border-red-100 rounded-xl p-3 font-black">
+                  ⚠️ {resetPasswordError}
+                </p>
+              )}
+
+              {resetPasswordSuccess && (
+                <p className="bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-xl p-3 font-black">
+                  ✓ {resetPasswordSuccess}
+                </p>
+              )}
+
+              <p className="text-xs text-gray-500 font-semibold leading-relaxed">
+                This action will reset the player's password to <strong className="text-[var(--primary)] font-black">NEW1234</strong>. The player will be forced to change it on their first login.
+              </p>
+
+              <label className="grid gap-1">
+                <span className="text-[10px] font-black uppercase text-gray-400">Admin Password Confirmation</span>
+                <input
+                  required
+                  type="password"
+                  placeholder="Enter your admin password"
+                  value={adminConfirmPassword}
+                  onChange={(e) => setAdminConfirmPassword(e.target.value)}
+                  className="h-10 bg-gray-50 rounded-xl px-3 border outline-none text-xs font-bold focus:ring-1 focus:ring-[var(--primary)]"
+                />
+              </label>
+
+              <label className="grid gap-1">
+                <span className="text-[10px] font-black uppercase text-gray-400">Reason (Optional)</span>
+                <input
+                  type="text"
+                  placeholder="e.g. Player requested reset"
+                  value={resetPasswordReason}
+                  onChange={(e) => setResetPasswordReason(e.target.value)}
+                  className="h-10 bg-gray-50 rounded-xl px-3 border outline-none text-xs font-bold focus:ring-1 focus:ring-[var(--primary)]"
+                />
+              </label>
+
+              <button
+                type="submit"
+                disabled={resetPasswordSubmitting}
+                className="h-12 w-full rounded-full bg-rose-600 text-white font-black hover:opacity-90 active:scale-95 transition flex items-center justify-center disabled:opacity-50"
+              >
+                {resetPasswordSubmitting ? "Resetting..." : "Confirm & Reset Password"}
+              </button>
+            </form>
           </div>
         </div>
       )}

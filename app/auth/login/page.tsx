@@ -19,7 +19,7 @@ function LoginForm() {
     redirect?.startsWith("/player/membership/configure/");
 
   const [form, setForm] = useState({
-    email: "",
+    phone: "",
     password: "",
   });
 
@@ -56,6 +56,11 @@ function LoginForm() {
         return;
       }
 
+      if (data?.user?.mustChangePassword) {
+        router.replace("/player/profile?changePasswordRequired=true");
+        return;
+      }
+
       if (data?.user?.role === "ADMIN" || data?.user?.hasRoleProfile) {
         router.replace("/admin/dashboard");
       } else {
@@ -88,11 +93,11 @@ function LoginForm() {
 
         <form onSubmit={handleSubmit} className="mt-8 grid gap-4">
           <input
-            type="email"
-            placeholder="Email"
-            value={form.email}
+            type="tel"
+            placeholder="Mobile Number"
+            value={form.phone}
             onChange={(event) =>
-              setForm((prev) => ({ ...prev, email: event.target.value }))
+              setForm((prev) => ({ ...prev, phone: event.target.value }))
             }
             className="h-14 rounded-full bg-white px-5 font-bold outline-none ring-1 ring-black/5"
           />

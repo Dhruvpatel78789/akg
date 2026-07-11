@@ -27,6 +27,18 @@ const UserSchema = new Schema(
     phoneVerified: { type: Boolean, default: false },
     emailVerified: { type: Boolean, default: false },
     canRescheduleFixedMembership: { type: Boolean, default: false },
+    mustChangePassword: { type: Boolean, default: false },
+    accountSource: {
+      type: String,
+      enum: [
+        "SELF_REGISTERED",
+        "VISITOR_BOOKING",
+        "ADMIN_CREATED",
+        "COMPANY_UPLOAD",
+        "ADMIN_CONVERTED_VISITOR"
+      ],
+      default: "SELF_REGISTERED"
+    },
   },
   { timestamps: true }
 );

@@ -7,8 +7,8 @@ import { signToken } from "@/lib/auth";
 import { UserRole } from "@/models/UserRole";
 
 const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8),
+  phone: z.string(),
+  password: z.string().min(6), // Reduced to allow NEW1234
 });
 
 export async function POST(request: Request) {
@@ -19,18 +19,20 @@ export async function POST(request: Request) {
 
   if (!result.success) {
     return NextResponse.json(
-      { message: "Invalid email or password" },
+      { message: "Invalid phone number or password format" },
       { status: 400 }
     );
   }
 
-  const { email, password } = result.data;
+  const { phone, password } = result.data;
 
-  const user = await User.findOne({ email });
+  // Search by phone number strictly
+  const trimmedPhone = phone.trim();
+  const user = await User.findOne({ phone: trimmedPhone });
 
   if (!user) {
     return NextResponse.json(
-      { message: "Invalid email or password" },
+      { message: "Invalid login credentials" },
       { status: 401 }
     );
   }
@@ -39,7 +41,7 @@ export async function POST(request: Request) {
 
   if (!validPassword) {
     return NextResponse.json(
-      { message: "Invalid email or password" },
+      { message: "Invalid login credentials" },
       { status: 401 }
     );
   }
@@ -59,6 +61,7 @@ export async function POST(request: Request) {
       email: user.email,
       role: user.role,
       hasRoleProfile: !!userRole,
+      mustChangePassword: user.mustChangePassword,
     },
   });
 

@@ -41,6 +41,10 @@ const MembershipSchema = new Schema(
       enum: ["PENDING", "PAID", "FAILED", "REFUNDED"],
       default: "PENDING",
     },
+    createdByAdminId: { type: Schema.Types.ObjectId, ref: "User" },
+    paidConfirmedByAdminId: { type: Schema.Types.ObjectId, ref: "User" },
+    paymentMethod: String,
+    paidAt: Date,
   },
   { timestamps: true }
 );

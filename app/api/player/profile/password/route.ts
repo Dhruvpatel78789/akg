@@ -39,6 +39,7 @@ export async function PATCH(request: Request) {
 
     const hashed = await bcrypt.hash(newPassword, 10);
     user.passwordHash = hashed;
+    user.mustChangePassword = false;
     await user.save();
 
     return NextResponse.json({

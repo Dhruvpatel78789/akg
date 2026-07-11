@@ -36,7 +36,7 @@ export async function GET() {
   }
 
   const user = await User.findById(authUser.userId).select(
-    "name email phone role coins"
+    "name email phone role coins coinsAvailable coinsFrozen coinsFrozenReason coinsFrozenAt dob mustChangePassword activePlanId coinPlanExpiryDate"
   );
 
   if (!user) {
@@ -53,6 +53,14 @@ export async function GET() {
       phone: user.phone,
       role: user.role,
       coins: user.coins,
+      coinsAvailable: user.coinsAvailable,
+      coinsFrozen: user.coinsFrozen,
+      coinsFrozenReason: user.coinsFrozenReason,
+      coinsFrozenAt: user.coinsFrozenAt,
+      dob: user.dob,
+      mustChangePassword: user.mustChangePassword,
+      activePlanId: user.activePlanId,
+      coinPlanExpiryDate: user.coinPlanExpiryDate,
       roleProfile: userRole || null,
     },
   });

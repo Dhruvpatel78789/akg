@@ -537,6 +537,11 @@ export default function PlayerDashboardPage() {
         return;
       }
 
+      if (result.user.mustChangePassword) {
+        router.replace("/player/profile?changePasswordRequired=true");
+        return;
+      }
+
       // Visitor guard check: redirect inactive visitors to homepage
       if (result.user && result.user.role === "VISITOR") {
         const hasActiveSession = !!result.activeSession;
@@ -745,8 +750,17 @@ export default function PlayerDashboardPage() {
       <section className="mx-auto w-full max-w-md md:max-w-2xl lg:max-w-4xl">
         <header className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-lg font-black text-[var(--primary)]">Hi!</p>
-            <h1 className="text-3xl font-black leading-none text-[var(--primary)]">
+            <div className="flex items-center gap-2">
+              <p className="text-lg font-black text-[var(--primary)]">Hi!</p>
+              {data.activeFixed ? (
+                <span className="bg-emerald-50 text-emerald-800 border border-emerald-100 px-2 py-0.5 rounded-full text-[9px] font-black uppercase">MEMBER</span>
+              ) : data.activeCoins ? (
+                <span className="bg-purple-50 text-purple-800 border border-purple-100 px-2 py-0.5 rounded-full text-[9px] font-black uppercase">COIN MEMBER</span>
+              ) : (
+                <span className="bg-gray-100 text-gray-700 border border-gray-200 px-2 py-0.5 rounded-full text-[9px] font-black uppercase">PLAYER</span>
+              )}
+            </div>
+            <h1 className="text-3xl font-black leading-none text-[var(--primary)] mt-0.5">
               {data.user.name}
             </h1>
           </div>
@@ -811,16 +825,15 @@ export default function PlayerDashboardPage() {
             </div>
 
             <Link
-              href="/player/membership/transactions"
+              href="/player/coins/history"
               className="flex h-12 items-center gap-2 rounded-full bg-white px-3 shadow-sm ring-1 ring-black/5"
               title="Coin History"
             >
               <Coins size={23} className="text-[var(--primary)] animate-coin" />
-              {data.user.coins > 0 && (
-                <span className="text-sm font-black text-[var(--primary)]">
-                  {data.user.coins}
-                </span>
-              )}
+              <span className="text-sm font-black text-[var(--primary)]">
+                {data.user.coinsAvailable ?? data.user.coins ?? 0} Coins
+                {(data.user.coinsFrozen || 0) > 0 && <span className="ml-1 text-xs" title="Coins frozen">❄️</span>}
+              </span>
             </Link>
           </div>
         </header>

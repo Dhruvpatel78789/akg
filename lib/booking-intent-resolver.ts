@@ -65,15 +65,28 @@ export async function resolveBookingIntent(
 
   // Find or create Visitor User
   let user = await User.findOne({ phone: intent.phone });
+  const bcrypt = await import("bcryptjs");
   if (!user) {
     const finalEmail = `${intent.phone}_${Date.now()}@visitor.akshargamezone.com`;
+    const passwordHash = await bcrypt.hash("NEW1234", 10);
     user = await User.create({
       name: intent.customerName || "Voice/WA Visitor",
       phone: intent.phone,
       email: finalEmail,
-      role: "VISITOR",
-      passwordHash: "visitor_dummy_password_hash",
+      role: "PLAYER",
+      mustChangePassword: true,
+      accountSource: "VISITOR_BOOKING",
+      passwordHash,
     });
+  } else {
+    // Promote if existing user has VISITOR role
+    if (user.role === "VISITOR") {
+      user.role = "PLAYER";
+      user.mustChangePassword = true;
+      user.accountSource = "VISITOR_BOOKING";
+      user.passwordHash = await bcrypt.hash("NEW1234", 10);
+      await user.save();
+    }
   }
 
   // Create actual Booking
