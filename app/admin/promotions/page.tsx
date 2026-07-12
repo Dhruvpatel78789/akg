@@ -78,6 +78,7 @@ export default function AdminPromotionsPage() {
 
   // Form states
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingCouponId, setEditingCouponId] = useState<string | null>(null);
   const [uploadLoading, setUploadLoading] = useState(false);
   const [promoForm, setPromoForm] = useState({
     type: "TEXT" as "TEXT" | "IMAGE" | "VIDEO",
@@ -367,17 +368,20 @@ export default function AdminPromotionsPage() {
         applicableOnMembership: couponForm.applicableOnMembership,
       };
 
-      const response = await fetch("/api/admin/coupons", {
-        method: "POST",
+      const url = editingCouponId ? `/api/admin/coupons/${editingCouponId}` : "/api/admin/coupons";
+      const method = editingCouponId ? "PUT" : "POST";
+      const response = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       const data = await response.json();
       if (!response.ok) {
-        setMessage(data.message || "Failed to create coupon");
+        setMessage(data.message || `Failed to ${editingCouponId ? "update" : "create"} coupon`);
         return;
       }
-      setMessage("Coupon created successfully!");
+      setMessage(`Coupon ${editingCouponId ? "updated" : "created"} successfully!`);
+      setEditingCouponId(null);
       setCouponForm({
         code: "",
         type: "PERCENTAGE",
@@ -442,6 +446,91 @@ export default function AdminPromotionsPage() {
       const response = await fetch(`/api/admin/coupons/${id}`, { method: "DELETE" });
       if (response.ok) {
         setMessage("Coupon deleted");
+        loadCoupons();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function startEditCoupon(c: Coupon) {
+    setEditingCouponId(c._id);
+    
+    let startD = "";
+    if (c.startDate) {
+      try {
+        startD = new Date(c.startDate).toISOString().split("T")[0];
+      } catch (e) {}
+    }
+    
+    let endD = "";
+    if (c.endDate) {
+      try {
+        endD = new Date(c.endDate).toISOString().split("T")[0];
+      } catch (e) {}
+    }
+
+    let expD = "";
+    if (c.expiryDate) {
+      try {
+        expD = new Date(c.expiryDate).toISOString().split("T")[0];
+      } catch (e) {}
+    }
+
+    setCouponForm({
+      code: c.code,
+      type: c.discountType || c.type || "PERCENTAGE",
+      value: c.discountValue ?? c.value ?? 0,
+      minBookingAmount: c.minimumOrderValue ?? c.minBookingAmount ?? 0,
+      maxDiscount: c.maximumDiscount ?? c.maxDiscount ?? 0,
+      discountType: c.discountType || c.type || "PERCENTAGE",
+      discountValue: String(c.discountValue ?? c.value ?? ""),
+      minimumOrderValue: c.minimumOrderValue ?? c.minBookingAmount ?? 0,
+      maximumDiscount: c.maximumDiscount !== undefined && c.maximumDiscount !== null ? String(c.maximumDiscount) : "",
+      applicableGames: c.applicableGames || [],
+      applicableUserTypes: c.applicableUserTypes || [],
+      startDate: startD,
+      endDate: endD,
+      expiryDate: expD,
+      active: c.active !== undefined ? c.active : true,
+      hidden: c.hidden !== undefined ? c.hidden : false,
+      usageLimit: c.usageLimit || 0,
+      applicableOnMembership: c.applicableOnMembership !== undefined ? c.applicableOnMembership : false,
+    });
+  }
+
+  function cancelEditCoupon() {
+    setEditingCouponId(null);
+    setCouponForm({
+      code: "",
+      type: "PERCENTAGE",
+      value: 0,
+      minBookingAmount: 0,
+      maxDiscount: 0,
+      discountType: "PERCENTAGE",
+      discountValue: "",
+      minimumOrderValue: 0,
+      maximumDiscount: "",
+      applicableGames: [],
+      applicableUserTypes: [],
+      startDate: "",
+      endDate: "",
+      expiryDate: "",
+      active: true,
+      hidden: false,
+      usageLimit: 0,
+      applicableOnMembership: false,
+    });
+  }
+
+  async function handleToggleHideCoupon(c: Coupon) {
+    try {
+      const response = await fetch(`/api/admin/coupons/${c._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hidden: !c.hidden }),
+      });
+      if (response.ok) {
         loadCoupons();
       }
     } catch (err) {
@@ -989,7 +1078,7 @@ export default function AdminPromotionsPage() {
         <div className="mt-8 grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
           <form onSubmit={createCoupon} className="xl:col-span-5 bg-white p-6 rounded-2xl ring-1 ring-black/5 space-y-4">
             <h3 className="text-lg font-black text-[var(--primary)] border-b pb-2 flex items-center gap-2">
-              <Tag size={16} /> Create Coupon Code
+              <Tag size={16} /> {editingCouponId ? "Edit Coupon Code" : "Create Coupon Code"}
             </h3>
 
             <div className="grid grid-cols-2 gap-3">
@@ -1180,9 +1269,20 @@ export default function AdminPromotionsPage() {
               </label>
             </div>
 
-            <button className="h-12 w-full rounded-full bg-[var(--primary)] text-xs font-black text-white hover:opacity-90 active:scale-95 transition">
-              Create Coupon Code
-            </button>
+            <div className="flex gap-2">
+              {editingCouponId && (
+                <button
+                  type="button"
+                  onClick={cancelEditCoupon}
+                  className="h-12 flex-1 rounded-full border border-gray-300 text-xs font-black text-gray-700 hover:bg-gray-50 active:scale-95 transition"
+                >
+                  Cancel Edit
+                </button>
+              )}
+              <button type="submit" className="h-12 flex-1 rounded-full bg-[var(--primary)] text-xs font-black text-white hover:opacity-90 active:scale-95 transition">
+                {editingCouponId ? "Save Changes" : "Create Coupon Code"}
+              </button>
+            </div>
           </form>
 
           <div className="xl:col-span-7 bg-white p-6 rounded-2xl ring-1 ring-black/5">
@@ -1235,12 +1335,29 @@ export default function AdminPromotionsPage() {
                         </td>
                         <td>{c.expiryDate ? new Date(c.expiryDate).toLocaleDateString("en-IN") : "Never"}</td>
                         <td>
-                          <button
-                            onClick={() => handleDeleteCoupon(c._id)}
-                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-full transition"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => startEditCoupon(c)}
+                              title="Edit Coupon"
+                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition text-[9px] font-black uppercase"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleToggleHideCoupon(c)}
+                              title={c.hidden ? "Unhide Coupon" : "Hide Coupon"}
+                              className={`px-2 py-1 rounded-lg transition text-[9px] font-black uppercase ${c.hidden ? "bg-amber-50 hover:bg-amber-100 text-amber-600" : "bg-gray-100 hover:bg-gray-200 text-gray-600"}`}
+                            >
+                              {c.hidden ? "Unhide" : "Hide"}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteCoupon(c._id)}
+                              title="Delete Coupon"
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded-full transition"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );

@@ -19,7 +19,7 @@ function LoginForm() {
     redirect?.startsWith("/player/membership/configure/");
 
   const [form, setForm] = useState({
-    phone: "",
+    identifier: "",
     password: "",
   });
 
@@ -93,11 +93,11 @@ function LoginForm() {
 
         <form onSubmit={handleSubmit} className="mt-8 grid gap-4">
           <input
-            type="tel"
-            placeholder="Mobile Number"
-            value={form.phone}
+            type="text"
+            placeholder="Mobile Number or Email"
+            value={form.identifier}
             onChange={(event) =>
-              setForm((prev) => ({ ...prev, phone: event.target.value }))
+              setForm((prev) => ({ ...prev, identifier: event.target.value }))
             }
             className="h-14 rounded-full bg-white px-5 font-bold outline-none ring-1 ring-black/5"
           />

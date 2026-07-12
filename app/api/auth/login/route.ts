@@ -7,7 +7,7 @@ import { signToken } from "@/lib/auth";
 import { UserRole } from "@/models/UserRole";
 
 const loginSchema = z.object({
-  phone: z.string(),
+  identifier: z.string(),
   password: z.string().min(6), // Reduced to allow NEW1234
 });
 
@@ -19,16 +19,28 @@ export async function POST(request: Request) {
 
   if (!result.success) {
     return NextResponse.json(
-      { message: "Invalid phone number or password format" },
+      { message: "Invalid credentials format" },
       { status: 400 }
     );
   }
 
-  const { phone, password } = result.data;
+  const { identifier, password } = result.data;
+  const trimmed = identifier.trim();
 
-  // Search by phone number strictly
-  const trimmedPhone = phone.trim();
-  const user = await User.findOne({ phone: trimmedPhone });
+  let user = null;
+  const isEmail = trimmed.includes("@");
+
+  if (isEmail) {
+    user = await User.findOne({ email: { $regex: new RegExp(`^${trimmed}$`, "i") } });
+    if (user && user.role === "PLAYER") {
+      return NextResponse.json(
+        { message: "Members must login using their mobile number." },
+        { status: 400 }
+      );
+    }
+  } else {
+    user = await User.findOne({ phone: trimmed });
+  }
 
   if (!user) {
     return NextResponse.json(
