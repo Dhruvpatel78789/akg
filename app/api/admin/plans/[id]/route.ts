@@ -12,6 +12,8 @@ const schema = z.object({
   coinsAmount: z.number().min(1).optional(),
   bonusCoins: z.number().min(0).optional(),
   price: z.number().min(1).optional(),
+  validityValue: z.number().min(1).optional(),
+  validityUnit: z.enum(["DAYS", "MONTHS"]).optional(),
 });
 
 export async function PATCH(
@@ -35,7 +37,17 @@ export async function PATCH(
     );
   }
 
-  const plan = await Plan.findByIdAndUpdate(id, result.data, {
+  const updates = { ...result.data } as any;
+  if (updates.validityValue !== undefined || updates.validityUnit !== undefined) {
+    const existing = await Plan.findById(id);
+    if (existing) {
+      const valValue = updates.validityValue !== undefined ? updates.validityValue : (existing.validityValue ?? 30);
+      const valUnit = updates.validityUnit !== undefined ? updates.validityUnit : (existing.validityUnit ?? "DAYS");
+      updates.validityDays = valUnit === "MONTHS" ? valValue * 30 : valValue;
+    }
+  }
+
+  const plan = await Plan.findByIdAndUpdate(id, updates, {
     new: true,
   });
 

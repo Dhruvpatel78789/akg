@@ -11,6 +11,7 @@ const gameSchema = z.object({
   bufferMinutes: z.number().min(0).default(0),
   fixedSlotBooking: z.boolean().optional(),
   allowCourtSelection: z.boolean().optional(),
+  blockedGameIds: z.array(z.string()).optional(),
 });
 
 export async function GET() {

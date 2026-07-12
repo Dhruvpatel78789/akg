@@ -58,6 +58,8 @@ const PlanSchema = new Schema(
     coinsAmount: Number,
     bonusCoins: { type: Number, default: 0 },
     validityDays: { type: Number, default: 30 },
+    validityValue: { type: Number, default: 30 },
+    validityUnit: { type: String, enum: ["DAYS", "MONTHS"], default: "DAYS" },
     coinValue: { type: Number, default: 1 },
     price: Number,
     dailyCoinSpendLimit: { type: Number, default: 0 },

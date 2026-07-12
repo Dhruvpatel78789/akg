@@ -12,6 +12,7 @@ const schema = z.object({
   bufferMinutes: z.number().min(0).optional(),
   fixedSlotBooking: z.boolean().optional(),
   allowCourtSelection: z.boolean().optional(),
+  blockedGameIds: z.array(z.string()).optional(),
 });
 
 export async function PATCH(

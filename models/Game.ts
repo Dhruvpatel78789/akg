@@ -33,6 +33,13 @@ const GameSchema = new Schema(
       type: Boolean,
       default: false,
     },
+
+    blockedGameIds: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "Game",
+      },
+    ],
   },
   { timestamps: true }
 );

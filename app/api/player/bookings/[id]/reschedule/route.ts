@@ -5,73 +5,10 @@ import { Booking } from "@/models/Booking";
 import { BookingRequest } from "@/models/BookingRequest";
 import { Settings } from "@/models/Settings";
 import { User } from "@/models/User";
-import { Court } from "@/models/court";
-import { CourtBlock } from "@/models/CourtBlock";
-import mongoose from "mongoose";
-
+import { checkCourtAvailability } from "@/lib/availability";
 import { parseIST } from "@/lib/time";
 
-function parseDateTime(dateStr: string, timeStr: string, addDays: number = 0) {
-  return parseIST(dateStr, timeStr, addDays);
-}
-
-async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd: Date, excludeBookingId?: string) {
-  const courts = await Court.find({ gameId, active: true }).lean();
-  if (courts.length === 0) {
-    return { available: false, reason: "No courts configured for this game" };
-  }
-
-  let existingBooking: any = null;
-  if (excludeBookingId && mongoose.Types.ObjectId.isValid(excludeBookingId)) {
-    existingBooking = await Booking.findById(excludeBookingId).lean();
-  }
-
-  const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-  const query: any = {
-    status: { $in: ["BOOKED", "STARTED"] },
-    softDeleted: false,
-    startTime: { $lt: bookingEnd },
-    endTime: { $gt: bookingStart },
-    $or: [
-      { paymentStatus: "PAID" },
-      { paymentMethod: "PAY_AT_COUNTER" },
-      { paymentStatus: "PENDING", createdAt: { $gte: tenMinutesAgo } },
-      { paymentStatus: "PENDING", intentExpiresAt: { $gt: new Date() } }
-    ]
-  };
-
-  if (excludeBookingId) {
-    query._id = { $ne: new mongoose.Types.ObjectId(excludeBookingId) };
-  }
-
-  const overlappingBookings = await Booking.find(query).lean();
-
-  const overlappingBlocks = await CourtBlock.find({
-    status: { $in: ["ACTIVE", "SCHEDULED"] },
-    blockedFrom: { $lt: bookingEnd },
-    blockedTo: { $gt: bookingStart }
-  }).lean();
-
-  for (const court of courts) {
-    const isBooked = overlappingBookings.some((b) => b.court?.trim().toLowerCase() === court.name.trim().toLowerCase());
-    
-    const isBlocked = overlappingBlocks.some((bl) => {
-      if (bl.courtId.toString() !== court._id.toString()) return false;
-      if (bl.keepExistingBookings) {
-        if (existingBooking && new Date(existingBooking.createdAt) < new Date(bl.createdAt)) {
-          return false; // ignore block
-        }
-      }
-      return true;
-    });
-
-    if (!isBooked && !isBlocked) {
-      return { available: true, courtName: court.name };
-    }
-  }
-
-  return { available: false, reason: "All courts are fully booked or blocked for the selected slot" };
-}
+const parseDateTime = parseIST;
 
 export async function POST(
   request: Request,
@@ -140,7 +77,7 @@ export async function POST(
     if (diffHours >= rescheduleWindow) {
       // Auto reschedule (outside restriction window)
       // Check slot availability
-      const avail = await checkAvailability(booking.gameId!.toString(), start, end, booking._id.toString());
+      const avail = await checkCourtAvailability(booking.gameId!.toString(), start, end, booking._id.toString());
       if (!avail.available) {
         return NextResponse.json({ message: avail.reason || "The requested slot is fully booked." }, { status: 409 });
       }

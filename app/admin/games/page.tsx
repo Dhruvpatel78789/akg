@@ -24,6 +24,7 @@ type Game = {
   fixedSlotBooking?: boolean;
   allowCourtSelection?: boolean;
   active: boolean;
+  blockedGameIds?: string[];
 };
 
 type Court = {
@@ -75,9 +76,34 @@ export default function AdminGamesPage() {
     fixedSlotBooking: false,
     allowCourtSelection: false,
     active: true,
+    blockedGameIds: [] as string[],
   });
 
   const [courtName, setCourtName] = useState("");
+
+  // Recurring Blocks states
+  const [recurringBlocks, setRecurringBlocks] = useState<any[]>([]);
+  const [recurringModal, setRecurringModal] = useState<{
+    courtId: string;
+    courtName: string;
+  } | null>(null);
+
+  const [recurringForm, setRecurringForm] = useState({
+    _id: "",
+    startTime: "",
+    endTime: "",
+    daysOfWeek: [] as string[],
+    startDate: "",
+    endDate: "",
+    reason: "",
+    active: true,
+  });
+
+  const [recurringConflictData, setRecurringConflictData] = useState<{
+    conflictsCount: number;
+    conflicts: any[];
+    message: string;
+  } | null>(null);
 
   const [courtBlockModal, setCourtBlockModal] = useState<{
     courtId: string;
@@ -164,18 +190,21 @@ function getApiErrors(data: any) {
   }
 
   async function loadGameDetails(gameId: string) {
-    const [courtsRes, rulesRes] = await Promise.all([
+    const [courtsRes, rulesRes, recurringRes] = await Promise.all([
       fetch(`/api/admin/games/${gameId}/courts`, { cache: "no-store" }),
       fetch(`/api/admin/games/${gameId}/pricing-rules`, {
         cache: "no-store",
       }),
+      fetch(`/api/admin/recurring-blocks?gameId=${gameId}`, { cache: "no-store" }),
     ]);
 
     const courtsData = await safeJson(courtsRes);
     const rulesData = await safeJson(rulesRes);
+    const recurringData = await safeJson(recurringRes);
 
     setCourts(courtsData?.courts || []);
     setRules(rulesData?.rules || []);
+    setRecurringBlocks(recurringData?.blocks || []);
   }
 
   function selectGame(game: Game) {
@@ -189,6 +218,7 @@ function getApiErrors(data: any) {
       fixedSlotBooking: game.fixedSlotBooking || false,
       allowCourtSelection: game.allowCourtSelection || false,
       active: game.active,
+      blockedGameIds: game.blockedGameIds || [],
     });
 
     setPricingForm((prev) => ({
@@ -327,6 +357,154 @@ function getApiErrors(data: any) {
     });
 
     loadGameDetails(selectedGame._id);
+  }
+
+  async function submitRecurringBlock(resolutionType?: "KEEP" | "RESCHEDULE") {
+    if (!selectedGame || !recurringModal) return;
+
+    const url = recurringForm._id
+      ? `/api/admin/recurring-blocks/${recurringForm._id}`
+      : "/api/admin/recurring-blocks";
+    const method = recurringForm._id ? "PUT" : "POST";
+
+    const payload = {
+      gameId: selectedGame._id,
+      courtId: recurringModal.courtId,
+      startTime: recurringForm.startTime,
+      endTime: recurringForm.endTime,
+      daysOfWeek: recurringForm.daysOfWeek,
+      startDate: recurringForm.startDate || null,
+      endDate: recurringForm.endDate || null,
+      reason: recurringForm.reason,
+      active: recurringForm.active,
+      resolutionType
+    };
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await safeJson(response);
+
+      if (response.ok) {
+        setRecurringModal(null);
+        setRecurringForm({
+          _id: "",
+          startTime: "",
+          endTime: "",
+          daysOfWeek: [],
+          startDate: "",
+          endDate: "",
+          reason: "",
+          active: true,
+        });
+        setRecurringConflictData(null);
+        setMessage(recurringForm._id ? "Recurring block updated successfully" : "Recurring block created successfully");
+        loadGameDetails(selectedGame._id);
+        return;
+      }
+
+      if (data?.hasConflicts) {
+        setRecurringConflictData({
+          conflictsCount: data.conflictsCount,
+          conflicts: data.conflicts,
+          message: data.message
+        });
+        return;
+      }
+
+      alert(data?.message || "Operation failed");
+    } catch (err: any) {
+      console.error(err);
+      alert("An error occurred: " + err.message);
+    }
+  }
+
+  function startEditRecurring(block: any, courtName: string) {
+    setRecurringModal({
+      courtId: block.courtId._id || block.courtId,
+      courtName: courtName
+    });
+    setRecurringForm({
+      _id: block._id,
+      startTime: block.startTime,
+      endTime: block.endTime,
+      daysOfWeek: block.daysOfWeek || [],
+      startDate: block.startDate ? new Date(block.startDate).toISOString().split("T")[0] : "",
+      endDate: block.endDate ? new Date(block.endDate).toISOString().split("T")[0] : "",
+      reason: block.reason || "",
+      active: block.active,
+    });
+    setRecurringConflictData(null);
+  }
+
+  async function toggleRecurringBlockActive(block: any) {
+    if (!selectedGame) return;
+    try {
+      const response = await fetch(`/api/admin/recurring-blocks/${block._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: !block.active })
+      });
+      if (response.ok) {
+        loadGameDetails(selectedGame._id);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function deleteRecurringBlock(blockId: string) {
+    if (!selectedGame) return;
+    if (!window.confirm("Are you sure you want to delete this recurring block?")) return;
+    try {
+      const response = await fetch(`/api/admin/recurring-blocks/${blockId}`, {
+        method: "DELETE"
+      });
+      if (response.ok) {
+        loadGameDetails(selectedGame._id);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function getNextOccurrence(rb: any) {
+    if (!rb.active || rb.softDeleted) return null;
+    
+    const DAYS_OF_WEEK = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
+    const now = new Date();
+    
+    for (let i = 0; i < 365; i++) {
+      const checkDate = new Date();
+      checkDate.setDate(now.getDate() + i);
+      
+      if (rb.startDate && checkDate < new Date(rb.startDate)) continue;
+      if (rb.endDate && checkDate > new Date(rb.endDate)) break;
+      
+      const dayName = DAYS_OF_WEEK[checkDate.getDay()];
+      if (rb.daysOfWeek.includes(dayName)) {
+        const [sh, sm] = rb.startTime.split(":").map(Number);
+        const [eh, em] = rb.endTime.split(":").map(Number);
+        
+        const occurrenceStart = new Date(checkDate);
+        occurrenceStart.setHours(sh, sm, 0, 0);
+        
+        const occurrenceEnd = new Date(checkDate);
+        occurrenceEnd.setHours(eh, em, 0, 0);
+        if (eh < sh || (eh === sh && em < sm)) {
+          occurrenceEnd.setDate(occurrenceEnd.getDate() + 1);
+        }
+        
+        if (occurrenceEnd > now) {
+          return { start: occurrenceStart, end: occurrenceEnd };
+        }
+      }
+    }
+    return null;
   }
 
   async function toggleCourtPermanent(courtId: string, isCurrentlyDisabled: boolean, overrideMode?: "KEEP" | "OVERRIDE") {
@@ -773,6 +951,44 @@ function getApiErrors(data: any) {
                   </span>
                 </label>
 
+                <div className="md:col-span-2 xl:col-span-6 border-t pt-4 mt-2">
+                  <h4 className="text-xs font-black uppercase text-[var(--primary)] mb-2">
+                    Shared Court Dependency
+                  </h4>
+                  <p className="text-[10px] text-[var(--text-muted)] mb-3">
+                    Select games that share the same physical court space. When this game is booked, the selected games will be automatically blocked.
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-40 overflow-y-auto bg-[#EDEBE2] p-3 rounded-xl">
+                    {games
+                      .filter((g) => g._id !== selectedGame._id)
+                      .map((g) => {
+                        const isChecked = editGame.blockedGameIds?.includes(g._id) || false;
+                        return (
+                          <label key={g._id} className="flex items-center gap-2 cursor-pointer p-1">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(event) => {
+                                const checked = event.target.checked;
+                                setEditGame((prev) => {
+                                  const list = prev.blockedGameIds || [];
+                                  const updated = checked
+                                    ? [...list, g._id]
+                                    : list.filter((id) => id !== g._id);
+                                  return { ...prev, blockedGameIds: updated };
+                                });
+                              }}
+                              className="rounded border-gray-300 text-[var(--primary)] focus:ring-[var(--primary)] h-4 w-4"
+                            />
+                            <span className="text-xs font-bold text-[var(--primary)] select-none">
+                              {g.name}
+                            </span>
+                          </label>
+                        );
+                      })}
+                  </div>
+                </div>
+
                 <button className="h-12 rounded-2xl bg-[var(--primary)] text-sm font-black text-white md:col-span-2 xl:col-span-6">
                   Save Game Changes
                 </button>
@@ -865,9 +1081,9 @@ function getApiErrors(data: any) {
                               <div key={block._id} className="flex items-center justify-between bg-amber-50 p-2 rounded-xl border border-amber-100 text-[11px] text-amber-900">
                                 <div className="space-y-0.5">
                                   <p className="font-bold">
-                                    {new Date(block.blockedFrom).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}{" "}
-                                    {new Date(block.blockedFrom).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}{" - "}
-                                    {new Date(block.blockedTo).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                                    {new Date(block.blockedFrom).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" })}{" "}
+                                    {new Date(block.blockedFrom).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false })}{" - "}
+                                    {new Date(block.blockedTo).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false })}
                                   </p>
                                   {block.reason && <p className="text-amber-700 font-medium italic">Reason: {block.reason}</p>}
                                 </div>
@@ -883,6 +1099,58 @@ function getApiErrors(data: any) {
                           </div>
                         </div>
                       )}
+                      {/* Recurring Blocks List */}
+                      {recurringBlocks.filter((rb) => (rb.courtId._id || rb.courtId) === court._id).length > 0 && (
+                        <div className="mt-4 border-t border-black/5 pt-3 space-y-2">
+                          <p className="text-[10px] font-black uppercase text-[var(--text-muted)] tracking-wider">Recurring Blocks:</p>
+                          <div className="grid gap-2 max-h-36 overflow-y-auto">
+                            {recurringBlocks
+                              .filter((rb) => (rb.courtId._id || rb.courtId) === court._id)
+                              .map((rb: any) => {
+                                const nextOcc = getNextOccurrence(rb);
+                                const nextStr = nextOcc
+                                  ? `${new Date(nextOcc.start).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" })}, ${rb.startTime}–${rb.endTime}`
+                                  : "None scheduled";
+                                return (
+                                  <div key={rb._id} className={`flex items-center justify-between p-2.5 rounded-xl border text-[11px] font-bold ${rb.active ? "bg-indigo-50 border-indigo-100 text-indigo-900" : "bg-gray-50 border-gray-150 text-gray-400"}`}>
+                                    <div className="space-y-0.5">
+                                      <p className="font-black text-gray-800">
+                                        {rb.daysOfWeek.join(", ")} | {rb.startTime}–{rb.endTime}
+                                      </p>
+                                      {rb.reason && <p className="text-gray-500 italic">Reason: {rb.reason}</p>}
+                                      <p className="text-[9px] text-gray-450">
+                                        Next block: <span className="font-black text-gray-600">{nextStr}</span>
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 ml-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleRecurringBlockActive(rb)}
+                                        className="text-[10px] font-black text-blue-600 hover:text-blue-800 transition"
+                                      >
+                                        {rb.active ? "Pause" : "Resume"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => startEditRecurring(rb, court.name)}
+                                        className="text-[10px] font-black text-indigo-600 hover:text-indigo-800 transition"
+                                      >
+                                        Edit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => deleteRecurringBlock(rb._id)}
+                                        className="text-[10px] font-black text-rose-600 hover:text-rose-700 transition"
+                                      >
+                                        Delete
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="mt-5 flex flex-wrap gap-2 border-t border-black/5 pt-4 justify-between items-center">
@@ -895,14 +1163,14 @@ function getApiErrors(data: any) {
                         <Trash2 size={15} />
                       </button>
 
-                      <div className="flex gap-1.5">
+                      <div className="flex flex-wrap gap-1.5 justify-end">
                         <button
                           type="button"
                           onClick={() => toggleCourtPermanent(court._id, !!court.disabled)}
                           className={`h-9 px-3.5 rounded-full text-[11px] font-black active:scale-95 transition-all ${
                             court.disabled
                               ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                              : "bg-rose-550 bg-rose-600 text-white hover:bg-rose-750"
+                              : "bg-rose-600 text-white hover:bg-rose-700"
                           }`}
                         >
                           {court.disabled ? "Enable Court" : "Disable Permanently"}
@@ -919,6 +1187,30 @@ function getApiErrors(data: any) {
                           className="h-9 px-3.5 rounded-full bg-gray-100 text-[11px] font-black text-[var(--primary)] hover:bg-gray-200 active:scale-95 transition-all"
                         >
                           Schedule Block
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRecurringModal({
+                              courtId: court._id,
+                              courtName: court.name,
+                            });
+                            setRecurringForm({
+                              _id: "",
+                              startTime: "18:00",
+                              endTime: "20:00",
+                              daysOfWeek: ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"],
+                              startDate: "",
+                              endDate: "",
+                              reason: "",
+                              active: true,
+                            });
+                            setRecurringConflictData(null);
+                          }}
+                          className="h-9 px-3.5 rounded-full bg-indigo-50 text-[11px] font-black text-indigo-700 hover:bg-indigo-100 active:scale-95 transition-all"
+                        >
+                          Schedule Recurring Block
                         </button>
                       </div>
                     </div>
@@ -1433,6 +1725,202 @@ function getApiErrors(data: any) {
                 </button>
               </div>
             </div>
+          </section>
+        </div>
+      )}
+
+      {recurringModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <section className="w-full max-w-lg rounded-[2rem] border border-white/60 bg-white p-6 shadow-xl backdrop-blur-2xl overflow-y-auto max-h-[90vh]">
+            <div className="flex items-center gap-2">
+              <CalendarClock size={24} className="text-indigo-650 text-indigo-600" />
+              <h2 className="text-2xl font-black text-[var(--primary)]">
+                {recurringConflictData
+                  ? "Booking Conflict Detected"
+                  : recurringForm._id
+                  ? `Edit Recurring Block`
+                  : `Schedule Recurring Block`}
+              </h2>
+            </div>
+            <p className="text-xs font-bold text-gray-500 mt-1">Court: {recurringModal.courtName}</p>
+
+            {recurringConflictData ? (
+              <div className="mt-5 space-y-4">
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs font-bold text-amber-900">
+                  <p className="font-black text-sm mb-2 text-amber-950">⚠️ {recurringConflictData.message}</p>
+                  <p className="mb-3 font-medium">Please choose how you would like to handle these existing conflicts:</p>
+                  <ul className="list-disc list-inside space-y-1 text-[11px] text-amber-800 max-h-32 overflow-y-auto bg-white p-2 rounded-lg border">
+                    {recurringConflictData.conflicts.map((c, idx) => (
+                      <li key={idx}>
+                        {new Date(c.startTime).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} ({c.playersCount} players)
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="grid gap-2">
+                  <button
+                    type="button"
+                    onClick={() => submitRecurringBlock("KEEP")}
+                    className="h-12 w-full rounded-2xl bg-white border border-gray-300 text-xs font-black text-gray-700 hover:bg-gray-50 transition"
+                  >
+                    Keep existing bookings and block only future availability
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => submitRecurringBlock("RESCHEDULE")}
+                    className="h-12 w-full rounded-2xl bg-amber-600 text-xs font-black text-white hover:bg-amber-700 transition"
+                  >
+                    Mark affected bookings for rescheduling
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRecurringConflictData(null)}
+                    className="h-12 w-full rounded-2xl bg-gray-200 text-xs font-black text-gray-700 hover:bg-gray-300 transition"
+                  >
+                    Cancel block creation
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-5 grid gap-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="grid gap-1">
+                    <span className="text-xs font-black uppercase text-[var(--text-muted)]">Start Time</span>
+                    <input
+                      type="time"
+                      required
+                      value={recurringForm.startTime}
+                      onChange={(e) => setRecurringForm(prev => ({ ...prev, startTime: e.target.value }))}
+                      className={fieldClass}
+                    />
+                  </label>
+
+                  <label className="grid gap-1">
+                    <span className="text-xs font-black uppercase text-[var(--text-muted)]">
+                      End Time {recurringForm.endTime && recurringForm.startTime && recurringForm.endTime < recurringForm.startTime ? " (+1 day)" : ""}
+                    </span>
+                    <input
+                      type="time"
+                      required
+                      value={recurringForm.endTime}
+                      onChange={(e) => setRecurringForm(prev => ({ ...prev, endTime: e.target.value }))}
+                      className={fieldClass}
+                    />
+                  </label>
+                </div>
+
+                <div className="grid gap-1">
+                  <span className="text-xs font-black uppercase text-[var(--text-muted)]">Applicable Days</span>
+                  <div className="flex gap-2 mb-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allDays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"];
+                        const isAllSelected = recurringForm.daysOfWeek.length === 7;
+                        setRecurringForm(prev => ({
+                          ...prev,
+                          daysOfWeek: isAllSelected ? [] : allDays
+                        }));
+                      }}
+                      className="px-3 h-8 text-[11px] rounded-lg font-black border bg-white hover:bg-gray-50 text-gray-700 active:scale-95 transition"
+                    >
+                      {recurringForm.daysOfWeek.length === 7 ? "Deselect All" : "Every Day"}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+                    {["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"].map((day) => {
+                      const isSelected = recurringForm.daysOfWeek.includes(day);
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() => {
+                            setRecurringForm(prev => {
+                              const alreadySelected = prev.daysOfWeek.includes(day);
+                              return {
+                                ...prev,
+                                daysOfWeek: alreadySelected
+                                  ? prev.daysOfWeek.filter((d) => d !== day)
+                                  : [...prev.daysOfWeek, day]
+                              };
+                            });
+                          }}
+                          className={`h-9 text-[9px] rounded-xl font-black border transition ${
+                            isSelected
+                              ? "bg-indigo-650 text-white border-indigo-650 bg-indigo-600 border-indigo-600"
+                              : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                          }`}
+                        >
+                          {day.substring(0, 3)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="grid gap-1">
+                    <span className="text-xs font-black uppercase text-[var(--text-muted)]">Start Date (Optional)</span>
+                    <input
+                      type="date"
+                      value={recurringForm.startDate}
+                      onChange={(e) => setRecurringForm(prev => ({ ...prev, startDate: e.target.value }))}
+                      className={fieldClass}
+                    />
+                  </label>
+
+                  <label className="grid gap-1">
+                    <span className="text-xs font-black uppercase text-[var(--text-muted)]">End Date (Optional)</span>
+                    <input
+                      type="date"
+                      value={recurringForm.endDate}
+                      onChange={(e) => setRecurringForm(prev => ({ ...prev, endDate: e.target.value }))}
+                      className={fieldClass}
+                    />
+                  </label>
+                </div>
+
+                <label className="grid gap-1">
+                  <span className="text-xs font-black uppercase text-[var(--text-muted)]">Reason (Optional)</span>
+                  <textarea
+                    value={recurringForm.reason}
+                    onChange={(e) => setRecurringForm(prev => ({ ...prev, reason: e.target.value }))}
+                    placeholder="e.g. Coaching, Training, Maintenance..."
+                    className="min-h-20 resize-none rounded-2xl border border-black/5 bg-white px-4 py-3 font-bold outline-none shadow-inner text-xs"
+                  />
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer py-1">
+                  <input
+                    type="checkbox"
+                    checked={recurringForm.active}
+                    onChange={(e) => setRecurringForm(prev => ({ ...prev, active: e.target.checked }))}
+                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-600 h-4.5 w-4.5"
+                  />
+                  <span className="text-xs font-black uppercase text-gray-600 select-none">Active Block Status</span>
+                </label>
+
+                <div className="grid grid-cols-2 gap-3 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setRecurringModal(null)}
+                    className="h-12 rounded-2xl bg-white border text-sm font-black text-[var(--primary)] hover:bg-gray-50 transition"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={!recurringForm.startTime || !recurringForm.endTime || recurringForm.daysOfWeek.length === 0}
+                    onClick={() => submitRecurringBlock()}
+                    className="h-12 rounded-2xl bg-indigo-600 text-sm font-black text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                  >
+                    {recurringForm._id ? "Save Changes" : "Schedule Block"}
+                  </button>
+                </div>
+              </div>
+            )}
           </section>
         </div>
       )}

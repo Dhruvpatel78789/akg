@@ -29,6 +29,8 @@ const planSchema = z.object({
   bonusCoins: z.number().min(0).optional(),
   price: z.number().min(1).optional(),
   dailyCoinSpendLimit: z.number().min(0).optional(),
+  validityValue: z.number().min(1).optional(),
+  validityUnit: z.enum(["DAYS", "MONTHS"]).optional(),
   active: z.boolean().optional(),
 });
 
@@ -208,12 +210,19 @@ if (duplicateDuration) {
       );
     }
 
+    const valValue = data.validityValue !== undefined ? Number(data.validityValue) : 30;
+    const valUnit = data.validityUnit || "DAYS";
+    const validityDays = valUnit === "MONTHS" ? valValue * 30 : valValue;
+
     const plan = await Plan.create({
       name: data.name,
       type: "COINS",
       coinsAmount: data.coinsAmount,
       bonusCoins: data.bonusCoins ?? 0,
       price: data.price,
+      validityValue: valValue,
+      validityUnit: valUnit,
+      validityDays,
       dailyCoinSpendLimit: data.dailyCoinSpendLimit ?? 0,
       active: data.active ?? true,
     });

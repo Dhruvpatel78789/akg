@@ -44,7 +44,7 @@ function BookSessionForm() {
   const [validationError, setValidationError] = useState("");
 
   // Court Selection & Suggested Slots
-  const [suggestedSlots, setSuggestedSlots] = useState<string[]>([]);
+  const [suggestedSlots, setSuggestedSlots] = useState<any[]>([]);
   const [allowCourtSelection, setAllowCourtSelection] = useState(false);
   const [availableCourts, setAvailableCourts] = useState<string[]>([]);
   const [selectedCourt, setSelectedCourt] = useState("");
@@ -567,15 +567,14 @@ function BookSessionForm() {
                       </select>
                     ) : (
                       <input
-                        type="text"
+                        type="time"
                         required
-                        placeholder="HH:MM"
                         value={startTime}
                         onChange={(e) => {
                           setStartTime(e.target.value);
                           setIsTimeChangedByUser(true);
                         }}
-                        className="h-14 w-full rounded-2xl bg-[#EDEBE2] px-5 font-bold outline-none border-0 text-[var(--primary)]"
+                        className="h-14 w-full rounded-2xl bg-[#EDEBE2] px-5 font-bold outline-none border-0 text-[var(--primary)] cursor-pointer"
                       />
                     )}
                     <Clock size={18} className="absolute right-4 top-4.5 text-[var(--primary)]/70 pointer-events-none" />
@@ -673,24 +672,73 @@ function BookSessionForm() {
               )}
 
               {/* Smart Rescheduling / Nearest Slot Recommendations */}
-              {available === false && suggestedSlots.length > 0 && (
+              {available === false && (
                 <div className="p-4 bg-amber-50 rounded-[1.5rem] border border-amber-100 text-left space-y-2 border-t pt-4">
-                  <p className="text-xs font-black text-amber-900 uppercase tracking-wide">Recommended Slots</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {suggestedSlots.map((slot) => (
-                      <button
-                        key={slot}
-                        type="button"
-                        onClick={() => {
-                          setStartTime(slot);
-                          setIsTimeChangedByUser(true);
-                        }}
-                        className="h-10 rounded-xl bg-white border border-amber-200 hover:bg-amber-100/50 text-[11px] font-bold text-amber-900 transition"
-                      >
-                        {slot}
-                      </button>
-                    ))}
-                  </div>
+                  {error === "Shared courts are occupied." ? (
+                    <div className="mb-3 text-[11px] font-medium text-amber-800 leading-relaxed space-y-1">
+                      <p className="font-bold">This booking requires the shared dependent courts to be available.</p>
+                      <p>The selected time is unavailable because one or more shared courts are already booked.</p>
+                    </div>
+                  ) : null}
+
+                  {suggestedSlots.length > 0 && (() => {
+                    const grouped: Record<string, typeof suggestedSlots> = {};
+                    suggestedSlots.forEach((slot: any) => {
+                      const type = slot.type || "Other Available Slots";
+                      if (!grouped[type]) grouped[type] = [];
+                      grouped[type].push(slot);
+                    });
+
+                    const categoryTitles: Record<string, string> = {
+                      "Today": "Available Later Today",
+                      "Nearby": "Late Night / Nearby",
+                      "Tomorrow": "Same Time Tomorrow",
+                      "Day After Tomorrow": "Same Time Day After Tomorrow",
+                      "Future": "Same Time on Future Days"
+                    };
+
+                    const order = ["Today", "Nearby", "Tomorrow", "Day After Tomorrow", "Future"];
+                    const sortedKeys = Object.keys(grouped).sort((a, b) => {
+                      const idxA = order.indexOf(a);
+                      const idxB = order.indexOf(b);
+                      return (idxA === -1 ? 99 : idxA) - (idxB === -1 ? 99 : idxB);
+                    });
+
+                    return (
+                      <div className="space-y-4">
+                        <p className="text-xs font-black text-amber-900 uppercase tracking-wide">Recommended Available Slots</p>
+                        {sortedKeys.map((typeKey) => {
+                          const slots = grouped[typeKey];
+                          const title = categoryTitles[typeKey] || typeKey;
+                          return (
+                            <div key={typeKey} className="space-y-1.5 border-t border-amber-200/50 pt-2.5">
+                              <span className="text-[10px] font-black uppercase text-amber-800/70 tracking-wide block">{title}</span>
+                              <div className="grid grid-cols-2 gap-2">
+                                {slots.map((slot: any, idx: number) => {
+                                  const displayLabel = `${slot.startTime}–${slot.endTime || ""}`;
+                                  const slotKey = `${slot.date}_${slot.startTime}_${idx}`;
+                                  return (
+                                    <button
+                                      key={slotKey}
+                                      type="button"
+                                      onClick={() => {
+                                        if (slot.date) setDate(slot.date);
+                                        if (slot.startTime) setStartTime(slot.startTime);
+                                        setIsTimeChangedByUser(true);
+                                      }}
+                                      className="h-10 rounded-xl bg-white border border-amber-200 hover:bg-amber-100/50 text-[11px] font-bold text-amber-900 transition px-2 text-center"
+                                    >
+                                      {displayLabel}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>

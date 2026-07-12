@@ -14,6 +14,9 @@ import { Coupon } from "@/models/Coupon";
 import { CouponUsage } from "@/models/CouponUsage";
 import { Settings } from "@/models/Settings";
 import mongoose from "mongoose";
+import { checkCourtAvailability } from "@/lib/availability";
+
+const checkAvailability = checkCourtAvailability;
 
 import { parseIST } from "@/lib/time";
 
@@ -47,51 +50,6 @@ function getMinutes(start: string, end: string) {
   return endMin - startMin;
 }
 
-async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd: Date, excludeBookingId?: string) {
-  const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-  const query: any = {
-    status: { $in: ["BOOKED", "STARTED"] },
-    softDeleted: false,
-    startTime: { $lt: bookingEnd },
-    endTime: { $gt: bookingStart },
-    $or: [
-      { paymentStatus: "PAID" },
-      { paymentMethod: "PAY_AT_COUNTER" },
-      { paymentStatus: "PENDING", createdAt: { $gte: tenMinutesAgo } }
-    ]
-  };
-
-  if (excludeBookingId) {
-    query._id = { $ne: new mongoose.Types.ObjectId(excludeBookingId) };
-  }
-
-  // Fetch courts, bookings and blocks concurrently
-  const [courts, overlappingBookings, overlappingBlocks] = await Promise.all([
-    Court.find({ gameId, active: true, disabled: { $ne: true } }).lean(),
-    Booking.find(query).lean(),
-    CourtBlock.find({
-      status: { $in: ["ACTIVE", "SCHEDULED"] },
-      $or: [
-        { blockedFrom: { $lt: bookingEnd }, blockedTo: { $gt: bookingStart } }
-      ]
-    }).lean()
-  ]);
-
-  if (courts.length === 0) {
-    return { available: false, reason: "No active courts configured for this game" };
-  }
-
-  for (const court of courts) {
-    const isBooked = overlappingBookings.some((b) => b.court?.trim().toLowerCase() === court.name.trim().toLowerCase());
-    const isBlocked = overlappingBlocks.some((bl) => bl.courtId.toString() === court._id.toString());
-
-    if (!isBooked && !isBlocked) {
-      return { available: true, courtName: court.name };
-    }
-  }
-
-  return { available: false, reason: "All courts are fully booked or blocked for the selected slot" };
-}
 
 function checkFixedMembershipCoverage(membership: any, gameId: string, bookingStart: Date, bookingEnd: Date) {
   if (!membership || membership.status !== "ACTIVE" || membership.membershipType !== "FIXED") {
@@ -236,6 +194,7 @@ export async function GET(request: Request) {
         const { CourtBlock } = await import("@/models/CourtBlock");
         const courts = await Court.find({ gameId, active: true, disabled: { $ne: true } }).lean();
         const overlappingBookings = await Booking.find({
+          gameId,
           status: { $in: ["BOOKED", "STARTED"] },
           softDeleted: false,
           startTime: { $lt: end },
@@ -249,6 +208,7 @@ export async function GET(request: Request) {
         }).lean();
 
         const overlappingBlocks = await CourtBlock.find({
+          gameId,
           status: { $in: ["ACTIVE", "SCHEDULED"] },
           blockedFrom: { $lt: end },
           blockedTo: { $gt: start }

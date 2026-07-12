@@ -32,6 +32,8 @@ type Plan = {
   bonusCoins?: number;
   price?: number;
   dailyCoinSpendLimit?: number;
+  validityValue?: number;
+  validityUnit?: "DAYS" | "MONTHS";
   active: boolean;
 };
 
@@ -76,6 +78,8 @@ export default function AdminPlansPage() {
     bonusCoins: 0,
     price: 499,
     dailyCoinSpendLimit: 0,
+    validityValue: 30,
+    validityUnit: "DAYS" as "DAYS" | "MONTHS",
     active: true,
   });
 
@@ -205,6 +209,8 @@ export default function AdminPlansPage() {
             bonusCoins: form.bonusCoins,
             price: form.price,
             dailyCoinSpendLimit: form.dailyCoinSpendLimit,
+            validityValue: form.validityValue,
+            validityUnit: form.validityUnit,
             active: form.active,
           };
 
@@ -224,7 +230,7 @@ export default function AdminPlansPage() {
     }
 
     setMessage("Plan created");
-    setForm((prev) => ({ ...prev, name: "", dailyCoinSpendLimit: 0 }));
+    setForm((prev) => ({ ...prev, name: "", dailyCoinSpendLimit: 0, validityValue: 30, validityUnit: "DAYS" }));
     setDurations([]);
     loadData();
   }
@@ -242,6 +248,8 @@ export default function AdminPlansPage() {
         bonusCoins: plan.bonusCoins,
         price: plan.price,
         dailyCoinSpendLimit: plan.dailyCoinSpendLimit,
+        validityValue: plan.validityValue,
+        validityUnit: plan.validityUnit,
       }),
     });
 
@@ -745,6 +753,46 @@ export default function AdminPlansPage() {
                     className={inputClass}
                   />
                 </label>
+
+                <div className="grid gap-1">
+                  <span className="text-xs font-black uppercase text-[var(--text-muted)]">
+                    Validity Duration
+                  </span>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      value={form.validityValue}
+                      onChange={(event) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          validityValue: Number(event.target.value),
+                        }))
+                      }
+                      className={`${inputClass} flex-1`}
+                    />
+                    <div className="relative flex items-center">
+                      <select
+                        value={form.validityUnit}
+                        onChange={(event) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            validityUnit: event.target.value as "DAYS" | "MONTHS",
+                          }))
+                        }
+                        className={selectClass}
+                      >
+                        <option value="DAYS">Days</option>
+                        <option value="MONTHS">Months</option>
+                      </select>
+                      <ChevronDown
+                        size={16}
+                        className="pointer-events-none absolute right-4 text-[var(--primary)]"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -851,9 +899,31 @@ export default function AdminPlansPage() {
                                 className="border p-1 rounded font-bold w-16"
                               />
                             </label>
+                            <label className="flex items-center gap-1">
+                              <span>Val:</span>
+                              <input
+                                type="number"
+                                min="1"
+                                value={editingPlan.validityValue ?? 30}
+                                onChange={(e) =>
+                                  setEditingPlan({ ...editingPlan, validityValue: Number(e.target.value) })
+                                }
+                                className="border p-1 rounded font-bold w-12"
+                              />
+                              <select
+                                value={editingPlan.validityUnit ?? "DAYS"}
+                                onChange={(e) =>
+                                  setEditingPlan({ ...editingPlan, validityUnit: e.target.value as "DAYS" | "MONTHS" })
+                                }
+                                className="border p-0.5 rounded font-bold text-xs"
+                              >
+                                <option value="DAYS">Days</option>
+                                <option value="MONTHS">Months</option>
+                              </select>
+                            </label>
                           </div>
                         ) : (
-                          `₹${plan.price} → ${(plan.coinsAmount || 0) + (plan.bonusCoins || 0)} coins (Limit: ${plan.dailyCoinSpendLimit || 0}/day)`
+                          `₹${plan.price} → ${(plan.coinsAmount || 0) + (plan.bonusCoins || 0)} coins (Limit: ${plan.dailyCoinSpendLimit || 0}/day, Exp: ${plan.validityValue ?? 30} ${plan.validityUnit ?? "DAYS"})`
                         )}
                       </td>
 

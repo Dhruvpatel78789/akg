@@ -14,11 +14,12 @@ import { sendBookingPaymentLink } from "@/lib/whatsapp";
 import mongoose from "mongoose";
 import Razorpay from "razorpay";
 
-function formatSuggestedSlots(slots: string[]) {
-  if (slots.length === 0) return "";
-  if (slots.length === 1) return slots[0];
-  if (slots.length === 2) return `${slots[0]} or ${slots[1]}`;
-  return `${slots.slice(0, -1).join(", ")}, or ${slots[slots.length - 1]}`;
+function formatSuggestedSlots(slots: { date: string; startTime: string; endTime: string; }[]) {
+  const formatted = slots.map(s => `${s.startTime} on ${s.date}`);
+  if (formatted.length === 0) return "";
+  if (formatted.length === 1) return formatted[0];
+  if (formatted.length === 2) return `${formatted[0]} or ${formatted[1]}`;
+  return `${formatted.slice(0, -1).join(", ")}, or ${formatted[formatted.length - 1]}`;
 }
 
 export async function POST(request: Request) {

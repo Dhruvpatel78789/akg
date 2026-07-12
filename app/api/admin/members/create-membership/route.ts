@@ -5,6 +5,7 @@ import { User } from "@/models/User";
 import { Membership } from "@/models/Membership";
 import { Plan } from "@/models/Plan";
 import { Transaction } from "@/models/Transaction";
+import { Game } from "@/models/Game";
 import bcrypt from "bcryptjs";
 
 export async function POST(request: Request) {
@@ -218,6 +219,44 @@ export async function POST(request: Request) {
       if (assignmentType === "COIN_PLAN" && plan.type !== "COINS") {
         return NextResponse.json({ message: "Selected plan must be a coin plan." }, { status: 400 });
       }
+
+      if (assignmentType === "MEMBERSHIP") {
+        const targetGameId = gameId || plan.gameId;
+        const game = await Game.findById(targetGameId).lean();
+        if (!game) {
+          return NextResponse.json({ message: "Game not found for membership plan" }, { status: 400 });
+        }
+
+        const startTimeVal = plan.allowUserTimeSelection ? startTime : plan.adminStartTime;
+        const endTimeVal = plan.allowUserTimeSelection ? endTime : plan.adminEndTime;
+
+        if (!startTimeVal || !endTimeVal) {
+          return NextResponse.json({ message: "Start time and end time are required for fixed memberships." }, { status: 400 });
+        }
+
+        const [sh, sm] = startTimeVal.split(":").map(Number);
+        const [eh, em] = endTimeVal.split(":").map(Number);
+        let sessionMinutes = (eh * 60 + em) - (sh * 60 + sm);
+        if (sessionMinutes < 0) {
+          sessionMinutes += 24 * 60;
+        }
+
+        if (sessionMinutes <= 0) {
+          return NextResponse.json({ message: "End time must be after start time" }, { status: 400 });
+        }
+
+        if (sessionMinutes < game.duration || sessionMinutes > game.maximumDuration) {
+          return NextResponse.json({
+            message: `Session duration must be between ${game.duration} and ${game.maximumDuration} minutes`
+          }, { status: 400 });
+        }
+
+        if (sessionMinutes % game.duration !== 0) {
+          return NextResponse.json({
+            message: `Session duration must be in multiples of ${game.duration} minutes`
+          }, { status: 400 });
+        }
+      }
     } else if (assignmentType === "ADD_COINS") {
       if (!coinsToAdd || Number(coinsToAdd) <= 0) {
         return NextResponse.json({ message: "Coins to add must be greater than 0." }, { status: 400 });
@@ -268,6 +307,9 @@ export async function POST(request: Request) {
       const totalDays = duration.totalDays || (duration.months * 30 + duration.days);
       const eDate = new Date(sDate.getTime() + totalDays * 24 * 60 * 60 * 1000);
 
+      const startTimeVal = plan.allowUserTimeSelection ? startTime : plan.adminStartTime;
+      const endTimeVal = plan.allowUserTimeSelection ? endTime : plan.adminEndTime;
+
       // Create Active Membership
       const membership = new Membership({
         userId: targetUser._id,
@@ -280,8 +322,8 @@ export async function POST(request: Request) {
         days: duration.days || 0,
         totalDays,
         startDate: sDate,
-        startTime: startTime ? new Date(`2000-01-01T${startTime}:00`) : undefined,
-        endTime: endTime ? new Date(`2000-01-01T${endTime}:00`) : undefined,
+        startTime: startTimeVal ? new Date(`2000-01-01T${startTimeVal}:00`) : undefined,
+        endTime: endTimeVal ? new Date(`2000-01-01T${endTimeVal}:00`) : undefined,
         price: duration.finalPrice,
         originalPrice: duration.originalPrice,
         status: "ACTIVE",

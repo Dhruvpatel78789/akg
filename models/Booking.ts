@@ -88,6 +88,59 @@ BookingSchema.pre("save", async function () {
   }
 });
 
+BookingSchema.post("save", async function (doc: any) {
+  try {
+    const { createDependencyBlocksForBooking, clearDependencyBlocksForBooking } = await import("@/lib/dependency-helper");
+    await clearDependencyBlocksForBooking(doc._id);
+
+    if (doc.status === "BOOKED" || doc.status === "STARTED") {
+      if (!doc.softDeleted) {
+        const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+        const isActive = doc.paymentStatus === "PAID" ||
+          doc.paymentMethod === "PAY_AT_COUNTER" ||
+          (doc.paymentStatus === "PENDING" && doc.createdAt >= tenMinutesAgo) ||
+          (doc.paymentStatus === "PENDING" && doc.intentExpiresAt && new Date(doc.intentExpiresAt) > new Date());
+
+        if (isActive) {
+          await createDependencyBlocksForBooking(doc);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Booking post-save dependency block error:", err);
+  }
+});
+
+const handlePostUpdate = async function (this: any) {
+  try {
+    const query = this.getQuery();
+    const updatedDocs = await this.model.find(query);
+    const { createDependencyBlocksForBooking, clearDependencyBlocksForBooking } = await import("@/lib/dependency-helper");
+    for (const doc of updatedDocs) {
+      await clearDependencyBlocksForBooking(doc._id);
+      if (doc.status === "BOOKED" || doc.status === "STARTED") {
+        if (!doc.softDeleted) {
+          const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+          const isActive = doc.paymentStatus === "PAID" ||
+            doc.paymentMethod === "PAY_AT_COUNTER" ||
+            (doc.paymentStatus === "PENDING" && doc.createdAt >= tenMinutesAgo) ||
+            (doc.paymentStatus === "PENDING" && doc.intentExpiresAt && new Date(doc.intentExpiresAt) > new Date());
+
+          if (isActive) {
+            await createDependencyBlocksForBooking(doc);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Booking post-update dependency block error:", err);
+  }
+};
+
+BookingSchema.post("updateOne", handlePostUpdate);
+BookingSchema.post("updateMany", handlePostUpdate);
+BookingSchema.post("findOneAndUpdate", handlePostUpdate);
+
 if (models.Booking) {
   delete (models as any).Booking;
 }

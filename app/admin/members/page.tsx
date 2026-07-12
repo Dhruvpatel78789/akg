@@ -193,6 +193,15 @@ export default function AdminMembersPage() {
     loadMembers();
   }
 
+  function addMinutesToTime(timeStr: string, minutes: number) {
+    if (!timeStr) return "";
+    const [h, m] = timeStr.split(":").map(Number);
+    const total = h * 60 + m + minutes;
+    const newH = Math.floor(total / 60) % 24;
+    const newM = total % 60;
+    return `${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`;
+  }
+
   async function handleCreateMembershipClick() {
     setCreateMemError("");
     setCreateMemSuccess("");
@@ -1549,27 +1558,81 @@ export default function AdminMembersPage() {
                             />
                           </label>
 
-                          <label className="grid gap-1">
-                            <span className="text-[10px] font-black uppercase text-gray-400">Daily Slot Start Time</span>
-                            <input
-                              type="time"
-                              required
-                              value={createMemForm.startTime}
-                              onChange={(e) => setCreateMemForm(prev => ({ ...prev, startTime: e.target.value }))}
-                              className="h-10 bg-white rounded-xl px-3 border outline-none text-xs font-bold"
-                            />
-                          </label>
+                          {(() => {
+                            const plan = plans.find((p) => p._id === createMemForm.planId);
+                            const game = games.find((g) => g._id === (createMemForm.gameId || plan?.gameId));
+                            const isTimeSelectionAllowed = plan?.allowUserTimeSelection === true;
 
-                          <label className="grid gap-1">
-                            <span className="text-[10px] font-black uppercase text-gray-400">Daily Slot End Time</span>
-                            <input
-                              type="time"
-                              required
-                              value={createMemForm.endTime}
-                              onChange={(e) => setCreateMemForm(prev => ({ ...prev, endTime: e.target.value }))}
-                              className="h-10 bg-white rounded-xl px-3 border outline-none text-xs font-bold"
-                            />
-                          </label>
+                            return isTimeSelectionAllowed ? (
+                              <>
+                                <label className="grid gap-1">
+                                  <span className="text-[10px] font-black uppercase text-gray-400">Daily Slot Start Time</span>
+                                  <input
+                                    type="time"
+                                    required
+                                    value={createMemForm.startTime}
+                                    onChange={(e) => {
+                                      const newStart = e.target.value;
+                                      setCreateMemForm(prev => {
+                                        const currentDiff = prev.startTime && prev.endTime ? 
+                                          ((Number(prev.endTime.split(":")[0]) * 60 + Number(prev.endTime.split(":")[1])) -
+                                           (Number(prev.startTime.split(":")[0]) * 60 + Number(prev.startTime.split(":")[1]))) : (game?.duration || 60);
+                                        const normalizedDiff = currentDiff <= 0 ? (game?.duration || 60) : currentDiff;
+                                        return {
+                                          ...prev,
+                                          startTime: newStart,
+                                          endTime: addMinutesToTime(newStart, normalizedDiff)
+                                        };
+                                      });
+                                    }}
+                                    className="h-10 bg-white rounded-xl px-3 border outline-none text-xs font-bold"
+                                  />
+                                </label>
+
+                                <label className="grid gap-1">
+                                  <span className="text-[10px] font-black uppercase text-gray-400">Daily Session Duration</span>
+                                  <select
+                                    required
+                                    onChange={(e) => {
+                                      const mins = Number(e.target.value);
+                                      if (createMemForm.startTime) {
+                                        setCreateMemForm(prev => ({
+                                          ...prev,
+                                          endTime: addMinutesToTime(prev.startTime, mins)
+                                        }));
+                                      }
+                                    }}
+                                    className="h-10 bg-white rounded-xl px-3 border outline-none text-xs font-bold cursor-pointer"
+                                  >
+                                    {game ? (
+                                      Array.from(
+                                        { length: Math.floor((game.maximumDuration - game.duration) / game.duration) + 1 },
+                                        (_, i) => game.duration + i * game.duration
+                                      ).map((mins) => (
+                                        <option key={mins} value={mins}>
+                                          {mins} Minutes
+                                        </option>
+                                      ))
+                                    ) : (
+                                      <option value="60">60 Minutes</option>
+                                    )}
+                                  </select>
+                                </label>
+
+                                <div className="col-span-2 text-xs font-black uppercase text-[var(--primary)] bg-indigo-50 border border-indigo-100 rounded-xl p-3 flex justify-between items-center">
+                                  <span>Calculated End Time:</span>
+                                  <span className="font-black text-sm">{createMemForm.endTime || "--:--"}</span>
+                                </div>
+                              </>
+                            ) : (
+                              <div className="col-span-2 text-[11px] font-bold text-gray-650 bg-gray-100 p-3.5 rounded-xl border border-gray-200">
+                                <p className="font-black text-[var(--primary)] uppercase text-[9px] text-gray-400 mb-1">Fixed Time Session (Set by Plan)</p>
+                                <p className="text-gray-800 text-xs">
+                                  {plan?.adminStartTime || "--:--"} to {plan?.adminEndTime || "--:--"}
+                                </p>
+                              </div>
+                            );
+                          })()}
                         </div>
                       )}
                     </div>
