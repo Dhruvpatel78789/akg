@@ -23,33 +23,68 @@ function HamburgerIcon() {
   );
 }
 
+const hookMessages = [
+  "🏸 Your next match is just a moment away...",
+  "⚡ Preparing your arena...",
+  "🎯 Champions don't wait. Neither do we.",
+  "🔥 Welcome back to Akshar Game Zone.",
+  "🏆 Every game begins with one click.",
+  "🎮 Loading your gaming universe...",
+  "🚀 Ready for another victory?",
+  "💙 Welcome back, Player!"
+];
+
 export default function HomePage() {
   const router = useRouter();
   const [activeAd, setActiveAd] = useState(0);
   const [user, setUser] = useState<any>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [promotions, setPromotions] = useState<any[]>([]);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [hookIndex, setHookIndex] = useState(0);
 
+  // Authenticate session on load
   useEffect(() => {
+    let active = true;
+
     fetch("/api/auth/me")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
+        if (!active) return;
         if (data?.user) {
           setUser(data.user);
+          // Redirect immediately depending on the user role
+          if (data.user.role === "ADMIN" || data.user.hasRoleProfile) {
+            router.replace("/admin/dashboard");
+          } else if (data.user.role === "COMPANY_EMPLOYEE") {
+            router.replace("/company/dashboard");
+          } else {
+            router.replace("/player/dashboard");
+          }
+        } else {
+          setCheckingAuth(false);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (active) setCheckingAuth(false);
+      });
 
     fetch("/api/promotions?placement=HOME_HERO")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
+        if (!active) return;
         if (data?.promotions) {
           setPromotions(data.promotions);
         }
       })
       .catch(() => {});
-  }, []);
 
+    return () => {
+      active = false;
+    };
+  }, [router]);
+
+  // Rotate ads
   useEffect(() => {
     if (promotions.length === 0) return;
     const timer = setInterval(() => {
@@ -59,10 +94,61 @@ export default function HomePage() {
     return () => clearInterval(timer);
   }, [promotions]);
 
+  // Rotate loading screen hook messages
+  useEffect(() => {
+    if (!checkingAuth) return;
+    const timer = setInterval(() => {
+      setHookIndex((prev) => (prev + 1) % hookMessages.length);
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [checkingAuth]);
+
   const coins = user?.coins || 0;
 
+  if (checkingAuth) {
+    return (
+      <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-gradient-to-br from-[#0c2f1d] via-[#041a0f] to-black text-white p-6 select-none animate-pulse-slow">
+        {/* Animated Sporty Graphic & Logo */}
+        <div className="relative mb-8 flex flex-col items-center">
+          <div className="relative h-28 w-28 animate-bounce">
+            <Image
+              src="/logo.png"
+              alt="Akshar Game Zone Logo"
+              fill
+              priority
+              className="object-contain filter drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]"
+            />
+          </div>
+          <div className="absolute -bottom-2 h-1.5 w-16 rounded-full bg-white/20 blur-sm animate-scale" />
+        </div>
+
+        {/* Brand Text */}
+        <h1 className="text-2xl font-black tracking-widest text-[#d8a83d] uppercase text-center mb-1">
+          Akshar Game Zone
+        </h1>
+        <p className="text-[10px] tracking-[0.2em] font-extrabold text-emerald-400 uppercase text-center mb-12">
+          Your Arena Awaits
+        </p>
+
+        {/* Hook Message */}
+        <div className="h-12 flex items-center justify-center px-4 max-w-sm text-center">
+          <p className="text-sm font-bold text-gray-200 transition-opacity duration-300">
+            {hookMessages[hookIndex]}
+          </p>
+        </div>
+
+        {/* Styled Progress Ring/Spinner */}
+        <div className="mt-8 flex items-center justify-center gap-2">
+          <div className="h-2 w-2 rounded-full bg-[#d8a83d] animate-ping" />
+          <div className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
+          <div className="h-2 w-2 rounded-full bg-[#d8a83d] animate-ping [animation-delay:0.2s]" />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <main className="h-screen overflow-hidden bg-[var(--background)]">
+    <main className="h-screen overflow-hidden bg-[var(--background)] opacity-0 animate-fade-in">
       <section className="mx-auto flex h-screen w-full max-w-md flex-col px-4 py-4 md:max-w-2xl lg:max-w-4xl">
         <header className="flex shrink-0 items-center justify-between pb-4">
           <div className="relative h-16 w-16">
@@ -152,51 +238,24 @@ export default function HomePage() {
             >
               {promotions.map((promo, index) => {
                 const content = (
-                  <div className="relative h-full w-full p-6 flex flex-col justify-end pb-8">
-                    {/* Media backgrounds */}
-                    {promo.type === "IMAGE" && promo.mediaUrl && (
-                      <img
-                        src={promo.mediaUrl}
-                        alt={promo.altText || promo.title || "Ad"}
-                        className="absolute inset-0 h-full w-full object-cover"
+                  <div className="relative h-full w-full">
+                    {promo.imageUrl && (
+                      <Image
+                        src={promo.imageUrl}
+                        alt={promo.title || "Promotion"}
+                        fill
+                        priority={index === 0}
+                        className="object-cover object-center opacity-85"
                       />
                     )}
-
-                    {promo.type === "VIDEO" && promo.mediaUrl && (
-                      <video
-                        src={promo.mediaUrl}
-                        className="absolute inset-0 h-full w-full object-cover"
-                        autoPlay
-                        muted
-                        loop
-                        playsInline
-                      />
-                    )}
-
-                    {promo.type === "TEXT" && (
-                      <>
-                        <div className="absolute -left-24 top-20 h-64 w-64 rounded-full bg-[var(--accent)]/30 blur-3xl" />
-                        <div className="absolute -right-24 bottom-20 h-72 w-72 rounded-full bg-white/20 blur-3xl" />
-                        <div className="absolute left-1/3 top-1/3 h-52 w-52 rounded-full bg-emerald-300/20 blur-3xl" />
-                      </>
-                    )}
-
-                    <div className="absolute inset-0 bg-black/10" />
-
-                    <div className="relative z-10 flex h-full flex-col justify-end pb-8">
-                      <p className="text-xs font-black uppercase tracking-[0.3em] text-[var(--accent)]">
-                        {promo.type === "TEXT" ? "Promotion" : (promo.altText || "Promotion")}
-                      </p>
-
-                      {promo.title && (
-                        <h2 className="mt-3 max-w-xs text-4xl font-black leading-tight text-white">
-                          {promo.title}
-                        </h2>
-                      )}
-
-                      {promo.subtitle && (
-                        <p className="mt-3 max-w-xs text-sm font-medium text-white/75">
-                          {promo.subtitle}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                    <div className="absolute bottom-10 left-6 right-6 text-white">
+                      <h3 className="text-2xl font-black md:text-3xl leading-snug">
+                        {promo.title}
+                      </h3>
+                      {promo.description && (
+                        <p className="mt-2 text-xs font-bold opacity-90 md:text-sm line-clamp-2">
+                          {promo.description}
                         </p>
                       )}
                     </div>

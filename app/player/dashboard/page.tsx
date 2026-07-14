@@ -326,6 +326,15 @@ export default function PlayerDashboardPage() {
   const [rescheduleValidationError, setRescheduleValidationError] = useState("");
   const [cancelValidationError, setCancelValidationError] = useState("");
 
+  // Change Password Modal States
+  const [showPasswordChangeModal, setShowPasswordChangeModal] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordChangeError, setPasswordChangeError] = useState("");
+  const [passwordChangeSuccess, setPasswordChangeSuccess] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+
   useEffect(() => {
     if (!reschedulingSession || !reschedulingSession.startTime) {
       setRescheduleValidationError("");
@@ -541,26 +550,13 @@ export default function PlayerDashboardPage() {
         return;
       }
 
-      if (result.user.mustChangePassword) {
-        router.replace("/player/profile?changePasswordRequired=true");
-        return;
-      }
+      setHasCheckedSession(true);
 
-      // Visitor guard check: redirect inactive visitors to homepage
-      if (result.user && result.user.role === "VISITOR") {
-        const hasActiveSession = !!result.activeSession;
-        const hasUpcomingBooking = (result.calendarSessions || []).some((s: any) => s.status === "BOOKED");
-        if (!hasActiveSession && !hasUpcomingBooking) {
-          if (!hasCheckedSession) {
-            setHasCheckedSession(true);
-            router.replace("/");
-            return;
-          }
-        } else {
-          setHasCheckedSession(true);
+      if (result.user.mustChangePassword) {
+        const skipped = sessionStorage.getItem("skippedPasswordChange");
+        if (!skipped) {
+          setShowPasswordChangeModal(true);
         }
-      } else {
-        setHasCheckedSession(true);
       }
 
       setData(result);
@@ -2222,6 +2218,120 @@ export default function PlayerDashboardPage() {
             <span>📷 Scan QR To End Session</span>
           </button>
         </footer>
+      )}
+      {/* First Login Welcome / Change Password Modal */}
+      {showPasswordChangeModal && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl transform transition-all border border-gray-100 flex flex-col">
+            <h2 className="text-xl font-black text-[var(--primary)] mb-2 flex items-center gap-2">
+              👋 Welcome to Akshar Game Zone!
+            </h2>
+            <p className="text-xs text-gray-500 font-bold mb-5 leading-relaxed">
+              Your account has been created successfully. For your security, you should change your password.
+            </p>
+
+            {passwordChangeError && (
+              <p className="p-3 bg-red-50 text-red-600 rounded-xl text-xs font-bold mb-4 border border-red-100">
+                ❌ {passwordChangeError}
+              </p>
+            )}
+
+            {passwordChangeSuccess ? (
+              <p className="p-3 bg-green-50 text-green-600 rounded-xl text-xs font-bold mb-4 border border-green-100">
+                🎉 {passwordChangeSuccess}
+              </p>
+            ) : (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setChangingPassword(true);
+                  setPasswordChangeError("");
+                  try {
+                    const res = await fetch("/api/player/profile/password", {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        currentPassword,
+                        newPassword,
+                        confirmPassword,
+                      }),
+                    });
+                    const result = await res.json();
+                    if (res.ok && result.success) {
+                      setPasswordChangeSuccess("Password updated successfully!");
+                      setTimeout(() => {
+                        setShowPasswordChangeModal(false);
+                        // Refresh to sync mustChangePassword status
+                        loadDashboard();
+                      }, 1500);
+                    } else {
+                      setPasswordChangeError(result.message || "Failed to update password.");
+                    }
+                  } catch {
+                    setPasswordChangeError("Network error occurred.");
+                  } finally {
+                    setChangingPassword(false);
+                  }
+                }}
+                className="space-y-4"
+              >
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-400">Current Password</label>
+                  <input
+                    type="password"
+                    required
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    placeholder="Enter current password"
+                    className="w-full h-11 bg-gray-50 rounded-xl px-3 border border-gray-100 outline-none text-xs font-bold text-gray-700 focus:ring-1 focus:ring-[var(--primary)]"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-400">New Password</label>
+                  <input
+                    type="password"
+                    required
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Enter new password (min. 8 characters)"
+                    className="w-full h-11 bg-gray-50 rounded-xl px-3 border border-gray-100 outline-none text-xs font-bold text-gray-700 focus:ring-1 focus:ring-[var(--primary)]"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-400">Confirm New Password</label>
+                  <input
+                    type="password"
+                    required
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Confirm new password"
+                    className="w-full h-11 bg-gray-50 rounded-xl px-3 border border-gray-100 outline-none text-xs font-bold text-gray-700 focus:ring-1 focus:ring-[var(--primary)]"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="submit"
+                    disabled={changingPassword}
+                    className="flex-1 h-11 bg-[var(--primary)] hover:opacity-90 text-white text-xs font-black rounded-xl active:scale-95 transition disabled:opacity-50"
+                  >
+                    {changingPassword ? "Updating..." : "Change Password"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sessionStorage.setItem("skippedPasswordChange", "true");
+                      setShowPasswordChangeModal(false);
+                    }}
+                    className="flex-1 h-11 bg-gray-100 text-gray-600 text-xs font-black rounded-xl hover:bg-gray-200 active:scale-95 transition"
+                  >
+                    Skip for Now
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
       )}
     </main>
   );

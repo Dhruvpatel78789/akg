@@ -122,35 +122,36 @@ export async function POST(request: Request) {
 
     const price = calculateBasePrice(rule, count);
 
-    // Find or create Visitor User
-    let user = await User.findOne({ phone });
-    const isCounter = paymentMethod === "PAY_AT_COUNTER";
+    // Find or create Player User
+    let user = await User.findOne({
+      $or: [
+        { phone },
+        ...(email ? [{ email }] : [])
+      ]
+    });
+
+    const bcrypt = await import("bcryptjs");
 
     if (!user) {
       const uniqueEmail = email || `${phone}@visitor.akshargamezone.com`;
-      // Check if email already registered to someone else
       const existingEmail = await User.findOne({ email: uniqueEmail });
       const finalEmail = existingEmail ? `${phone}_${Date.now()}@visitor.akshargamezone.com` : uniqueEmail;
 
-      const bcrypt = await import("bcryptjs");
-      const passwordHash = isCounter 
-        ? await bcrypt.hash("NEW1234", 10) 
-        : "visitor_dummy_password_hash";
+      const passwordHash = await bcrypt.hash("NEW1234", 10);
 
       user = await User.create({
         name,
         phone,
         email: finalEmail,
         dob: dob ? new Date(dob) : undefined,
-        role: isCounter ? "PLAYER" : "VISITOR",
+        role: "PLAYER",
         passwordHash,
-        mustChangePassword: isCounter,
-        accountSource: isCounter ? "VISITOR_BOOKING" : "SELF_REGISTERED"
+        mustChangePassword: true,
+        accountSource: "VISITOR_BOOKING"
       });
     } else {
-      // If user exists and is a VISITOR, and payment is PAY_AT_COUNTER, promote to PLAYER
-      if (user.role === "VISITOR" && isCounter) {
-        const bcrypt = await import("bcryptjs");
+      // If user exists and is a VISITOR, promote to PLAYER
+      if (user.role === "VISITOR") {
         user.role = "PLAYER";
         user.mustChangePassword = true;
         user.accountSource = "VISITOR_BOOKING";

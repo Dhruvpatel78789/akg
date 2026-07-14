@@ -91,6 +91,12 @@ export default function AdminMembersPage() {
   const [coinReason, setCoinReason] = useState("");
   const [adjustingCoins, setAdjustingCoins] = useState(false);
 
+  // Delete Membership States
+  const [membershipToDelete, setMembershipToDelete] = useState<string | null>(null);
+  const [adminPasswordForDelete, setAdminPasswordForDelete] = useState("");
+  const [deleteMembershipError, setDeleteMembershipError] = useState("");
+  const [deletingMembership, setDeletingMembership] = useState(false);
+
   // Create Membership States
   const [showCreateMembershipModal, setShowCreateMembershipModal] = useState(false);
   const [games, setGames] = useState<any[]>([]);
@@ -1037,13 +1043,27 @@ export default function AdminMembersPage() {
                         </p>
                         <p className="text-[10px] text-gray-400 mt-1">Purchased: {new Date(m.createdAt).toLocaleDateString("en-IN")}</p>
                       </div>
-                      <div className="text-right">
-                        <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${
-                          m.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-600"
-                        }`}>
-                          {m.status}
-                        </span>
-                        <p className="font-black text-[var(--primary)] mt-2">₹{m.price}</p>
+                      <div className="text-right flex items-center gap-3">
+                        <div>
+                          <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${
+                            m.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-600"
+                          }`}>
+                            {m.status}
+                          </span>
+                          <p className="font-black text-[var(--primary)] mt-2">₹{m.price}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeleteMembershipError("");
+                            setAdminPasswordForDelete("");
+                            setMembershipToDelete(m._id);
+                          }}
+                          className="p-2.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl transition duration-150 active:scale-95 text-sm"
+                          title="Delete Membership"
+                        >
+                          🗑️
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -1806,6 +1826,94 @@ export default function AdminMembersPage() {
                 className="h-12 w-full rounded-full bg-rose-600 text-white font-black hover:opacity-90 active:scale-95 transition flex items-center justify-center disabled:opacity-50"
               >
                 {resetPasswordSubmitting ? "Resetting..." : "Confirm & Reset Password"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Membership Confirmation Modal */}
+      {membershipToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-xl border border-gray-100 flex flex-col">
+            <header className="flex items-center justify-between pb-3 border-b border-gray-100 mb-4">
+              <h3 className="text-base font-black text-rose-600">⚠️ Delete Membership</h3>
+              <button
+                type="button"
+                onClick={() => setMembershipToDelete(null)}
+                className="h-8 w-8 flex items-center justify-center rounded-full bg-gray-50 text-gray-500 font-bold hover:bg-gray-100 active:scale-95 transition"
+              >
+                ✕
+              </button>
+            </header>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setDeletingMembership(true);
+                setDeleteMembershipError("");
+                try {
+                  const res = await fetch("/api/admin/members/delete-membership", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      membershipId: membershipToDelete,
+                      adminPassword: adminPasswordForDelete,
+                    }),
+                  });
+                  const result = await res.json();
+                  if (res.ok && result.success) {
+                    setMembershipToDelete(null);
+                    setAdminPasswordForDelete("");
+                    
+                    if (activeProfile && activeProfile.user) {
+                      const profileRes = await fetch(`/api/admin/members/${activeProfile.user._id}/history`);
+                      const profileData = await profileRes.json();
+                      if (profileRes.ok) {
+                        setActiveProfile(profileData);
+                      }
+                    }
+                    
+                    loadMembers();
+                  } else {
+                    setDeleteMembershipError(result.message || "Failed to delete membership.");
+                  }
+                } catch {
+                  setDeleteMembershipError("Network error occurred.");
+                } finally {
+                  setDeletingMembership(false);
+                }
+              }}
+              className="space-y-4 text-xs font-bold text-gray-700"
+            >
+              {deleteMembershipError && (
+                <p className="bg-red-50 text-red-700 border border-red-100 rounded-xl p-3 font-black">
+                  ⚠️ {deleteMembershipError}
+                </p>
+              )}
+
+              <p className="text-xs text-gray-500 font-semibold leading-relaxed">
+                Are you sure you want to delete this membership record? This action is permanent and cannot be undone.
+              </p>
+
+              <label className="grid gap-1">
+                <span className="text-[10px] font-black uppercase text-gray-400">Admin Password Confirmation</span>
+                <input
+                  required
+                  type="password"
+                  placeholder="Enter your admin password"
+                  value={adminPasswordForDelete}
+                  onChange={(e) => setAdminPasswordForDelete(e.target.value)}
+                  className="h-10 bg-gray-50 rounded-xl px-3 border outline-none text-xs font-bold focus:ring-1 focus:ring-[var(--primary)]"
+                />
+              </label>
+
+              <button
+                type="submit"
+                disabled={deletingMembership}
+                className="h-12 w-full rounded-full bg-rose-600 text-white font-black hover:opacity-90 active:scale-95 transition flex items-center justify-center disabled:opacity-50"
+              >
+                {deletingMembership ? "Deleting..." : "Confirm & Delete Membership"}
               </button>
             </form>
           </div>

@@ -23,6 +23,7 @@ type Plan = {
   coinsAmount?: number;
   bonusCoins?: number;
   price?: number;
+  dailyCoinSpendLimit?: number;
   active: boolean;
 };
 
@@ -413,9 +414,17 @@ export default function MembershipPage() {
                     )}
 
                     {plan.type === "COINS" && (
-                      <p className="text-3xl font-black text-[var(--primary)]">
-                        ₹{plan.price}
-                      </p>
+                      <div className="flex items-center justify-between mt-4 text-2xl font-black text-[var(--primary)]">
+                        <div>
+                          {(plan.coinsAmount || 0) + (plan.bonusCoins || 0)} Coins
+                        </div>
+                        <div>
+                          ₹{plan.price}
+                        </div>
+                        <div>
+                          Limit: {plan.dailyCoinSpendLimit || 800}
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>

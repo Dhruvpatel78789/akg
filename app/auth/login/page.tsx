@@ -56,11 +56,6 @@ function LoginForm() {
         return;
       }
 
-      if (data?.user?.mustChangePassword) {
-        router.replace("/player/profile?changePasswordRequired=true");
-        return;
-      }
-
       if (data?.user?.role === "ADMIN" || data?.user?.hasRoleProfile) {
         router.replace("/admin/dashboard");
       } else {

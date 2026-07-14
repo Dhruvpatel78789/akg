@@ -28,6 +28,7 @@ export async function GET() {
         email: employee.email,
         phone: employee.mobile,
         role: "COMPANY_EMPLOYEE",
+        accountType: "COMPANY_PLAYER",
         companyId: employee.companyId.toString(),
         companyName: company ? company.name : "Company",
         mustChangePassword: employee.mustChangePassword,
@@ -43,6 +44,11 @@ export async function GET() {
     return NextResponse.json({ user: null }, { status: 401 });
   }
 
+  const { Membership } = await import("@/models/Membership");
+  const activeFixed = await Membership.findOne({ userId: user._id, status: "ACTIVE", membershipType: "FIXED" }).lean();
+  const activeCoins = await Membership.findOne({ userId: user._id, status: "ACTIVE", membershipType: "COINS" }).lean();
+  const accountType = activeFixed ? "MEMBER" : activeCoins ? "COIN_MEMBER" : "PLAYER";
+
   const userRole = await UserRole.findOne({ userId: user._id }).lean();
 
   return NextResponse.json({
@@ -52,6 +58,7 @@ export async function GET() {
       email: user.email,
       phone: user.phone,
       role: user.role,
+      accountType,
       coins: user.coins,
       coinsAvailable: user.coinsAvailable,
       coinsFrozen: user.coinsFrozen,

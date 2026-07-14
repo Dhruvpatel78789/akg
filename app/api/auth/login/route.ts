@@ -63,6 +63,11 @@ export async function POST(request: Request) {
     role: user.role,
   });
 
+  const { Membership } = await import("@/models/Membership");
+  const activeFixed = await Membership.findOne({ userId: user._id, status: "ACTIVE", membershipType: "FIXED" }).lean();
+  const activeCoins = await Membership.findOne({ userId: user._id, status: "ACTIVE", membershipType: "COINS" }).lean();
+  const accountType = activeFixed ? "MEMBER" : activeCoins ? "COIN_MEMBER" : "PLAYER";
+
   const userRole = await UserRole.findOne({ userId: user._id }).lean();
 
   const response = NextResponse.json({
@@ -72,6 +77,7 @@ export async function POST(request: Request) {
       name: user.name,
       email: user.email,
       role: user.role,
+      accountType,
       hasRoleProfile: !!userRole,
       mustChangePassword: user.mustChangePassword,
     },
