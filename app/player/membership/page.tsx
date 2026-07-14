@@ -365,11 +365,11 @@ export default function MembershipPage() {
                     {plan.name}
                   </h2>
 
-                  <p className="mt-1 text-sm font-bold text-[var(--text-muted)]">
-                    {plan.type === "FIXED"
-                      ? plan.gameName
-                      : `${(plan.coinsAmount || 0) + (plan.bonusCoins || 0)} coins`}
-                  </p>
+                  {plan.type === "FIXED" && (
+                    <p className="mt-1 text-sm font-bold text-[var(--text-muted)]">
+                      {plan.gameName}
+                    </p>
+                  )}
 
                   <div className="mt-4">
                     {plan.type === "FIXED" && selectedDuration && (
@@ -414,15 +414,30 @@ export default function MembershipPage() {
                     )}
 
                     {plan.type === "COINS" && (
-                      <div className="flex items-center justify-between mt-4 text-2xl font-black text-[var(--primary)]">
-                        <div>
-                          {(plan.coinsAmount || 0) + (plan.bonusCoins || 0)} Coins
+                      <div className="flex items-center justify-between mt-4">
+                        <div className="flex flex-col text-left">
+                          <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider">
+                            Coins
+                          </span>
+                          <span className="text-2xl font-black text-[var(--primary)]">
+                            {(plan.coinsAmount || 0) + (plan.bonusCoins || 0)}
+                          </span>
                         </div>
-                        <div>
-                          ₹{plan.price}
+                        <div className="flex flex-col text-center">
+                          <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider">
+                            Price
+                          </span>
+                          <span className="text-2xl font-black text-[var(--primary)]">
+                            ₹{plan.price}
+                          </span>
                         </div>
-                        <div>
-                          Limit: {plan.dailyCoinSpendLimit || 800}
+                        <div className="flex flex-col text-right">
+                          <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider">
+                            Daily Limit
+                          </span>
+                          <span className="text-2xl font-black text-[var(--primary)]">
+                            {plan.dailyCoinSpendLimit || 800}
+                          </span>
                         </div>
                       </div>
                     )}
