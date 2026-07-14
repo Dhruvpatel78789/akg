@@ -18,6 +18,7 @@ export default function AdminSettingsPage() {
   const [billingLetterheadUrl, setBillingLetterheadUrl] = useState("");
   const [maxVisitorCoinUsagePercentage, setMaxVisitorCoinUsagePercentage] = useState(20);
   const [payAtCounterWindowMinutes, setPayAtCounterWindowMinutes] = useState(30);
+  const [defaultDailyCoinSpendLimit, setDefaultDailyCoinSpendLimit] = useState(800);
   const [uploading, setUploading] = useState(false);
 
   const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -43,6 +44,7 @@ export default function AdminSettingsPage() {
         setBillingLetterheadUrl(settingsData.settings.billingLetterheadUrl || "");
         setMaxVisitorCoinUsagePercentage(settingsData.settings.maxVisitorCoinUsagePercentage ?? 20);
         setPayAtCounterWindowMinutes(settingsData.settings.payAtCounterWindowMinutes ?? 30);
+        setDefaultDailyCoinSpendLimit(settingsData.settings.defaultDailyCoinSpendLimit ?? 800);
       }
     } catch {
       setMessage("Network error loading settings");
@@ -67,6 +69,7 @@ export default function AdminSettingsPage() {
           billingLetterheadUrl,
           maxVisitorCoinUsagePercentage: Number(maxVisitorCoinUsagePercentage),
           payAtCounterWindowMinutes: Number(payAtCounterWindowMinutes),
+          defaultDailyCoinSpendLimit: Number(defaultDailyCoinSpendLimit),
         }),
       });
       const data = await response.json();
@@ -366,6 +369,17 @@ export default function AdminSettingsPage() {
                     min="0"
                     value={payAtCounterWindowMinutes}
                     onChange={(e) => setPayAtCounterWindowMinutes(Number(e.target.value))}
+                    className="w-full h-11 bg-gray-50 rounded-xl px-3 border border-gray-100 outline-none text-xs font-bold text-gray-700 focus:ring-1 focus:ring-[var(--primary)]"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-black uppercase text-gray-400">Default Daily Coin Spend Limit</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={defaultDailyCoinSpendLimit}
+                    onChange={(e) => setDefaultDailyCoinSpendLimit(Number(e.target.value))}
                     className="w-full h-11 bg-gray-50 rounded-xl px-3 border border-gray-100 outline-none text-xs font-bold text-gray-700 focus:ring-1 focus:ring-[var(--primary)]"
                   />
                 </div>

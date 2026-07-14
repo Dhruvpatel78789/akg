@@ -7,6 +7,7 @@ import { Court } from "@/models/court";
 import { CourtBlock } from "@/models/CourtBlock";
 import { Booking } from "@/models/Booking";
 import { Membership } from "@/models/Membership";
+import { Plan } from "@/models/Plan";
 import { PricingRule } from "@/models/PricingRule";
 import { Transaction } from "@/models/Transaction";
 import { PaymentOrder } from "@/models/PaymentOrder";
@@ -706,7 +707,7 @@ export async function POST(request: Request) {
       userId: user._id,
       status: "ACTIVE",
       membershipType: "COINS",
-    }).sort({ createdAt: -1 });
+    }).populate("planId").sort({ createdAt: -1 });
 
     if (activeCoinsMembership && user.coinPlanExpiryDate) {
       // Prevent booking if booking start date is beyond coin plan expiry date
@@ -765,7 +766,7 @@ export async function POST(request: Request) {
     }
 
     // Helper to create pending booking
-    const createPendingBooking = async () => {
+    const createPendingBooking = async (coinCostToDeduct = 0, priceToPay = expectedPrice) => {
       const intentCreatedAt = new Date();
       const intentExpiresAt = new Date(intentCreatedAt.getTime() + 10 * 60 * 1000);
       return await Booking.create({
@@ -775,8 +776,8 @@ export async function POST(request: Request) {
         court: finalCourt,
         startTime: start,
         endTime: end,
-        coinCost: 0,
-        price: expectedPrice,
+        coinCost: coinCostToDeduct,
+        price: priceToPay,
         playersCount: count,
         crossMidnight,
         status: "BOOKED",
@@ -788,19 +789,10 @@ export async function POST(request: Request) {
       });
     };
 
-    // Check limits and coin balance
-    if (user.coins < bookingCost) {
-      const pendingBooking = await createPendingBooking();
-      return NextResponse.json({
-        redirectPayment: true,
-        reason: "insufficient_coins",
-        message: `Insufficient coins. This booking costs ${bookingCost} coins, but you only have ${user.coins} coins.`,
-        bookingId: pendingBooking._id,
-      }, { status: 402 });
-    }
-
-    // Check daily coin spend limit (Only for COINS membership type. Ignore for FIXED/no memberships)
+    // Retrieve daily limit from user or plan fallback
     const hasCoinsMembership = activeCoinsMembership && activeCoinsMembership.status === "ACTIVE";
+    let remainingDailyLimit = Infinity;
+    let todaySpent = 0;
 
     if (hasCoinsMembership) {
       const { start: startOfDay, endExtended: endExtendedDay } = getDayBounds(date);
@@ -811,18 +803,40 @@ export async function POST(request: Request) {
         softDeleted: false,
       }).lean();
 
-      const todaySpent = todayBookings.reduce((sum, b) => sum + (b.coinCost || 0), 0);
-      const limit = user.dailyCoinSpendLimit || 0;
-
-      if (limit > 0 && todaySpent + bookingCost > limit) {
-        const pendingBooking = await createPendingBooking();
-        return NextResponse.json({
-          redirectPayment: true,
-          reason: "exceeds_limit",
-          message: "Daily membership usage limit reached. Please book using a regular payment.",
-          bookingId: pendingBooking._id,
-        }, { status: 402 });
+      todaySpent = todayBookings.reduce((sum, b) => sum + (b.coinCost || 0), 0);
+      let limit = user.dailyCoinSpendLimit || (activeCoinsMembership as any).planId?.dailyCoinSpendLimit || 0;
+      if (limit === 0) {
+        const settings = await Settings.findOne().lean();
+        limit = settings?.defaultDailyCoinSpendLimit ?? 800;
       }
+      if (limit > 0) {
+        remainingDailyLimit = Math.max(0, limit - todaySpent);
+      }
+    }
+
+    // Check if total transaction exceeds the daily coin limit OR available coins
+    const maxCoinsAllowed = Math.min(user.coins, remainingDailyLimit);
+
+    if (bookingCost > maxCoinsAllowed) {
+      // Calculate how many coins can be used
+      const coinsToUse = Math.max(0, maxCoinsAllowed);
+      const remainingCashToPay = bookingCost - coinsToUse;
+
+      const pendingBooking = await createPendingBooking(coinsToUse, remainingCashToPay);
+
+      let reason = "insufficient_coins";
+      let msg = `Insufficient coins. Using ${coinsToUse} coins from your balance, and the remaining ₹${remainingCashToPay} must be paid online.`;
+      if (remainingDailyLimit < bookingCost && remainingDailyLimit < user.coins) {
+        reason = "exceeds_limit";
+        msg = `Daily limit reached. Using ${coinsToUse} coins from your balance, and the remaining ₹${remainingCashToPay} must be paid online.`;
+      }
+
+      return NextResponse.json({
+        redirectPayment: true,
+        reason,
+        message: msg,
+        bookingId: pendingBooking._id,
+      }, { status: 402 });
     }
 
     // Prevent coin booking if user coins are frozen

@@ -13,6 +13,7 @@ const SettingsSchema = new Schema(
     billingLetterheadUrl: { type: String, default: "" },
     maxVisitorCoinUsagePercentage: { type: Number, default: 20 },
     payAtCounterWindowMinutes: { type: Number, default: 30 },
+    defaultDailyCoinSpendLimit: { type: Number, default: 800 },
   },
   { timestamps: true }
 );

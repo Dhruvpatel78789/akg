@@ -5,6 +5,7 @@ import { User } from "@/models/User";
 import { Booking } from "@/models/Booking";
 import { Transaction } from "@/models/Transaction";
 import { Membership } from "@/models/Membership";
+import { Plan } from "@/models/Plan";
 import { updateBookingStatuses } from "@/lib/booking-status-updater";
 
 function getMembershipDaysLeft(membership: any) {
@@ -94,6 +95,7 @@ export async function GET() {
     status: "ACTIVE",
     membershipType: "COINS",
   })
+    .populate("planId")
     .sort({ createdAt: -1 })
     .lean();
 
@@ -221,6 +223,10 @@ export async function GET() {
 
   const todayCoinsUsed = todayCoinsBookings.reduce((sum, b) => sum + (b.coinCost || 0), 0);
 
+  const { Settings } = await import("@/models/Settings");
+  const settingsObj = await Settings.findOne().lean();
+  const defaultDailyCoinSpendLimit = settingsObj?.defaultDailyCoinSpendLimit ?? 800;
+
   return NextResponse.json({
     user,
     noMembership,
@@ -239,5 +245,6 @@ export async function GET() {
     pendingRescheduleRequestCount,
     pendingCancellationRequestCount,
     todayCoinsUsed,
+    defaultDailyCoinSpendLimit,
   });
 }

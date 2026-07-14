@@ -24,6 +24,7 @@ export async function GET() {
         billingLetterheadUrl: settings.billingLetterheadUrl,
         maxVisitorCoinUsagePercentage: settings.maxVisitorCoinUsagePercentage,
         payAtCounterWindowMinutes: settings.payAtCounterWindowMinutes ?? 30,
+        defaultDailyCoinSpendLimit: settings.defaultDailyCoinSpendLimit ?? 800,
       },
     });
   } catch (error: any) {
@@ -46,6 +47,7 @@ export async function POST(req: Request) {
       billingLetterheadUrl,
       maxVisitorCoinUsagePercentage,
       payAtCounterWindowMinutes,
+      defaultDailyCoinSpendLimit,
     } = body;
 
     let settings = await Settings.findOne();
@@ -60,6 +62,7 @@ export async function POST(req: Request) {
     if (typeof billingLetterheadUrl === "string") settings.billingLetterheadUrl = billingLetterheadUrl;
     if (typeof maxVisitorCoinUsagePercentage === "number") settings.maxVisitorCoinUsagePercentage = maxVisitorCoinUsagePercentage;
     if (typeof payAtCounterWindowMinutes === "number") settings.payAtCounterWindowMinutes = payAtCounterWindowMinutes;
+    if (typeof defaultDailyCoinSpendLimit === "number") settings.defaultDailyCoinSpendLimit = defaultDailyCoinSpendLimit;
 
     await settings.save();
 
@@ -74,6 +77,7 @@ export async function POST(req: Request) {
         billingLetterheadUrl: settings.billingLetterheadUrl,
         maxVisitorCoinUsagePercentage: settings.maxVisitorCoinUsagePercentage,
         payAtCounterWindowMinutes: settings.payAtCounterWindowMinutes ?? 30,
+        defaultDailyCoinSpendLimit: settings.defaultDailyCoinSpendLimit ?? 800,
       },
     });
   } catch (error: any) {

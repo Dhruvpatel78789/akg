@@ -221,11 +221,13 @@ function UnifiedPaymentForm() {
       return plan.durations?.[durationIndex]?.finalPrice || 0;
     }
     if (type === "booking") {
-      // Booking cash price is equal to the coin cost (1 coin = 1 rupee)
+      if (bookingDetails) {
+        return bookingDetails.price;
+      }
       return coinCost;
     }
     return 0;
-  }, [type, plan, durationIndex, coinCost]);
+  }, [type, plan, durationIndex, coinCost, bookingDetails]);
 
   // Discount Coupons
   const [couponCode, setCouponCode] = useState("");

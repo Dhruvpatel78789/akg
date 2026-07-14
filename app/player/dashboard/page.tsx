@@ -60,6 +60,9 @@ type Booking = {
 
 type Membership = {
   _id: string;
+  planId?: {
+    dailyCoinSpendLimit?: number;
+  };
   gameName?: string;
   membershipType?: "FIXED" | "FLEXIBLE" | "COINS";
   durationLabel?: string;
@@ -90,6 +93,7 @@ type DashboardData = {
   pendingRescheduleRequestCount?: number;
   pendingCancellationRequestCount?: number;
   todayCoinsUsed?: number;
+  defaultDailyCoinSpendLimit?: number;
 };
 
 type CalendarDay = {
@@ -1657,7 +1661,7 @@ export default function PlayerDashboardPage() {
                   const remainingCoins = data.user.coinsAvailable || 0;
                   const frozenCoins = data.user.coinsFrozen || 0;
                   const coinsSpentToday = data.todayCoinsUsed || 0;
-                  const limit = data.user.dailyCoinSpendLimit || 0;
+                  const limit = data.user.dailyCoinSpendLimit || data.activeCoins?.planId?.dailyCoinSpendLimit || data.defaultDailyCoinSpendLimit || 800;
                   const availableToday = Math.max(0, limit - coinsSpentToday);
 
                   const daysLeft = expiryDate ? Math.max(0, Math.ceil((expiryDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))) : 0;

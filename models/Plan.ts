@@ -9,6 +9,7 @@ const DurationSchema = new Schema(
     totalDays: { type: Number, required: true },
 
     playersIncluded: { type: Number, required: true },
+    perDayDuration: { type: Number, default: 60 },
 
     originalPrice: { type: Number, required: true },
     pricingRuleId: {

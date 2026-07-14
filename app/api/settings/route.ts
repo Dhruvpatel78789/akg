@@ -7,7 +7,7 @@ export async function GET() {
     await connectDB();
     let settings = await Settings.findOne().lean();
     if (!settings) {
-      settings = { payAtCounterWindowMinutes: 30 } as any;
+      settings = { payAtCounterWindowMinutes: 30, defaultDailyCoinSpendLimit: 800 } as any;
     }
     return NextResponse.json({ success: true, settings });
   } catch (error: any) {

@@ -1,12 +1,14 @@
 "use client";
 
 import { Plus, Trash2, ChevronDown } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 
 
 type Game = {
   _id: string;
   name: string;
+  duration?: number;
+  maximumDuration?: number;
 };
 
 type DurationOption = {
@@ -14,6 +16,7 @@ type DurationOption = {
   months: number;
   days: number;
   playersIncluded: number;
+  perDayDuration: number;
   originalPrice: number;
   discountType: "PERCENTAGE" | "FLAT";
   discountValue: number;
@@ -84,16 +87,44 @@ export default function AdminPlansPage() {
   });
 
   const [duration, setDuration] = useState<DurationOption>({
-  label: "1M",
-  months: 1,
-  days: 0,
-  playersIncluded: 1,
+    label: "1M",
+    months: 1,
+    days: 0,
+    playersIncluded: 1,
+    perDayDuration: 60,
     originalPrice: 0,
     discountType: "PERCENTAGE",
     discountValue: 0,
   });
 
   const [durations, setDurations] = useState<DurationOption[]>([]);
+  const [isManualPrice, setIsManualPrice] = useState(false);
+
+  const selectedGame = useMemo(() => {
+    return games.find((g) => g._id === form.gameId);
+  }, [games, form.gameId]);
+
+  const perDayDurationOptions = useMemo(() => {
+    if (!selectedGame) return [60];
+    const min = selectedGame.duration || 60;
+    const max = selectedGame.maximumDuration || min;
+    const options: number[] = [];
+    for (let d = min; d <= max; d += min) {
+      options.push(d);
+    }
+    return options;
+  }, [selectedGame]);
+
+  useEffect(() => {
+    if (perDayDurationOptions.length > 0) {
+      setDuration((prev) => {
+        if (!perDayDurationOptions.includes(prev.perDayDuration)) {
+          return { ...prev, perDayDuration: perDayDurationOptions[0] };
+        }
+        return prev;
+      });
+    }
+  }, [perDayDurationOptions]);
 
   async function loadData() {
     const [plansRes, gamesRes] = await Promise.all([
@@ -112,37 +143,59 @@ export default function AdminPlansPage() {
     }
   }
 
-  async function fetchPriceForPlayers(playersIncluded: number) {
+  async function fetchPriceForPlayers(
+    playersIncluded: number,
+    months: number,
+    days: number,
+    perDayDuration: number
+  ) {
     if (!form.gameId || form.type !== "FIXED") return;
 
-    const response = await fetch(
-      `/api/admin/games/${form.gameId}/pricing-preview`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-  playersIncluded,
-  months: duration.months,
-  days: duration.days,
-}),
+    try {
+      const response = await fetch(
+        `/api/admin/games/${form.gameId}/pricing-preview`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            playersIncluded,
+            months,
+            days,
+            perDayDuration,
+          }),
+        }
+      );
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (e) {
+        data = { message: "Failed to parse preview response from server." };
       }
-    );
 
-    const data = await response.json();
+      if (!response.ok) {
+        if (response.status === 404) {
+          setIsManualPrice(true);
+          setMessage("No pricing rule found. Please enter the original price manually.");
+        } else {
+          setIsManualPrice(false);
+          setDuration((prev) => ({ ...prev, originalPrice: 0 }));
+          setMessage(data.message || "Failed to fetch pricing preview.");
+        }
+        return;
+      }
 
-    if (!response.ok) {
-      setDuration((prev) => ({ ...prev, originalPrice: 0 }));
-      setMessage(data.message);
-      return;
+      setMessage("");
+      setIsManualPrice(false);
+      setDuration((prev) => ({
+        ...prev,
+        originalPrice: data.price,
+      }));
+    } catch (err) {
+      setMessage("Network error occurred while fetching pricing preview.");
     }
-
-    setMessage("");
-    setDuration((prev) => ({
-      ...prev,
-      originalPrice: data.price,
-    }));
   }
 
   function addDuration() {
@@ -169,6 +222,7 @@ export default function AdminPlansPage() {
       months: 0,
       days: 1,
       playersIncluded: duration.playersIncluded,
+      perDayDuration: duration.perDayDuration,
       originalPrice: duration.originalPrice,
       discountType: "PERCENTAGE",
       discountValue: 0,
@@ -193,10 +247,11 @@ export default function AdminPlansPage() {
             adminStartTime: form.adminStartTime,
             adminEndTime: form.adminEndTime,
             durations: durations.map((item) => ({
-  label: item.label,
-  months: item.months,
-  days: item.days,
-  playersIncluded: item.playersIncluded,
+              label: item.label,
+              months: item.months,
+              days: item.days,
+              playersIncluded: item.playersIncluded,
+              perDayDuration: item.perDayDuration,
               discountType: item.discountType,
               discountValue: item.discountValue,
             })),
@@ -308,10 +363,15 @@ export default function AdminPlansPage() {
 
   useEffect(() => {
     if (form.type === "FIXED") {
-      fetchPriceForPlayers(duration.playersIncluded);
+      fetchPriceForPlayers(
+        duration.playersIncluded,
+        duration.months,
+        duration.days,
+        duration.perDayDuration
+      );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.gameId, duration.playersIncluded, duration.months, duration.days]);
+  }, [form.gameId, duration.playersIncluded, duration.months, duration.days, duration.perDayDuration]);
 
   return (
     <section className="min-w-0">
@@ -401,7 +461,7 @@ export default function AdminPlansPage() {
 
             {form.type === "FIXED" && (
               <>
-                <div className="grid gap-4 xl:grid-cols-3">
+                <div className="grid gap-4 xl:grid-cols-4">
                   <div className="relative grid gap-1">
   <span className="text-xs font-black uppercase text-[var(--text-muted)]">
     Game
@@ -471,6 +531,32 @@ export default function AdminPlansPage() {
                       className={inputClass}
                     />
                   </label>
+
+                  <div className="relative grid gap-1">
+                    <span className="text-xs font-black uppercase text-[var(--text-muted)]">
+                      Per Day Duration (Min)
+                    </span>
+                    <select
+                      value={duration.perDayDuration}
+                      onChange={(event) =>
+                        setDuration((prev) => ({
+                          ...prev,
+                          perDayDuration: Number(event.target.value),
+                        }))
+                      }
+                      className={selectClass}
+                    >
+                      {perDayDurationOptions.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt} min
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown
+                      size={18}
+                      className="pointer-events-none absolute right-4 top-[42px] text-gray-500"
+                    />
+                  </div>
                 </div>
 
                 {!form.allowUserTimeSelection && (
@@ -597,11 +683,25 @@ export default function AdminPlansPage() {
                   <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_1fr_1fr_52px]">
                     <label className="grid gap-1">
                       <span className="text-xs font-black uppercase text-[var(--text-muted)]">
-                        Price From Game Rule
+                        {isManualPrice ? "Original Price (Manual)" : "Price From Game Rule"}
                       </span>
-                      <div className="flex h-11 items-center rounded-xl bg-[#F8F7F1] px-4 font-black text-[var(--primary)]">
-                        ₹{duration.originalPrice}
-                      </div>
+                      {isManualPrice ? (
+                        <input
+                          type="number"
+                          value={duration.originalPrice}
+                          onChange={(event) =>
+                            setDuration((prev) => ({
+                              ...prev,
+                              originalPrice: Number(event.target.value),
+                            }))
+                          }
+                          className={durationInputClass}
+                        />
+                      ) : (
+                        <div className="flex h-11 items-center rounded-xl bg-[#F8F7F1] px-4 font-black text-[var(--primary)]">
+                          ₹{duration.originalPrice}
+                        </div>
+                      )}
                     </label>
 
                     <label className="grid gap-1">
@@ -650,6 +750,7 @@ export default function AdminPlansPage() {
                             <th>Months</th>
                             <th>Days</th>
                             <th>Players</th>
+                            <th>Per Day Duration</th>
                             <th>Original</th>
                             <th>Final</th>
                             <th></th>
@@ -663,6 +764,7 @@ export default function AdminPlansPage() {
                               <td>{item.months}</td>
                               <td>{item.days}</td>
                               <td>{item.playersIncluded}</td>
+                              <td>{item.perDayDuration || 60} min</td>
                               <td>₹{item.originalPrice}</td>
                               <td>₹{calculateFinalPrice(item)}</td>
                               <td>
@@ -850,7 +952,7 @@ export default function AdminPlansPage() {
                           plan.durations
                             ?.map(
                               (item) =>
-                               `${item.label} (${item.months}M ${item.days}D, ${item.playersIncluded}P): ₹${item.finalPrice}`
+                               `${item.label} (${item.months}M ${item.days}D, ${item.playersIncluded}P, ${item.perDayDuration || 60}m/day): ₹${item.finalPrice}`
                             )
                             .join(", ")
                         ) : isEditing ? (

@@ -1,6 +1,14 @@
 import mongoose from "mongoose";
 import { NextResponse } from "next/server";
 
+// Pre-register schemas to prevent Mongoose MissingSchemaErrors
+import "@/models/User";
+import "@/models/Plan";
+import "@/models/Membership";
+import "@/models/Booking";
+import "@/models/Game";
+import "@/models/Settings";
+
 const MONGODB_URI = process.env.MONGODB_URI!;
 
 if (!MONGODB_URI) {

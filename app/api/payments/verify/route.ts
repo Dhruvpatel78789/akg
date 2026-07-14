@@ -79,12 +79,22 @@ export async function POST(req: NextRequest) {
         booking.paidAt = new Date();
         await booking.save();
 
+        if (booking.coinCost > 0) {
+          const { User } = await import("@/models/User");
+          const user = await User.findById(booking.userId);
+          if (user) {
+            user.coins = Math.max(0, user.coins - booking.coinCost);
+            user.coinsAvailable = Math.max(0, (user.coinsAvailable || 0) - booking.coinCost);
+            await user.save();
+          }
+        }
+
         await Transaction.create({
           userId: booking.userId,
           type: "SESSION_DEDUCTION",
           amount: order.amount || booking.price || 0,
-          coins: 0,
-          note: `Online payment booking for ${booking.gameName} on court ${booking.court || "N/A"}`,
+          coins: booking.coinCost || 0,
+          note: `Online payment booking for ${booking.gameName} on court ${booking.court || "N/A"}${booking.coinCost > 0 ? ` (with ${booking.coinCost} coins)` : ""}`,
           paymentMode: "online",
           paymentStatus: "PAID",
         });
