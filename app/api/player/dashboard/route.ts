@@ -87,6 +87,7 @@ export async function GET() {
     status: "ACTIVE",
     membershipType: "FIXED",
   })
+    .populate("planId")
     .sort({ createdAt: -1 })
     .lean();
 

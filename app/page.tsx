@@ -148,7 +148,7 @@ export default function HomePage() {
   }
 
   return (
-    <main className="h-screen overflow-hidden bg-[var(--background)] opacity-0 animate-fade-in">
+    <main className="h-screen overflow-hidden bg-[var(--background)]">
       <section className="mx-auto flex h-screen w-full max-w-md flex-col px-4 py-4 md:max-w-2xl lg:max-w-4xl">
         <header className="flex shrink-0 items-center justify-between pb-4">
           <div className="relative h-16 w-16">

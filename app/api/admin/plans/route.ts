@@ -13,6 +13,8 @@ const durationSchema = z.object({
   playersIncluded: z.coerce.number().min(1),
   discountType: z.enum(["PERCENTAGE", "FLAT"]),
   discountValue: z.coerce.number().min(0),
+  originalPrice: z.coerce.number().min(0).optional(),
+  finalPrice: z.coerce.number().min(0).optional(),
 });
 
 const planSchema = z.object({
@@ -24,6 +26,11 @@ const planSchema = z.object({
   adminStartTime: z.string().optional(),
   adminEndTime: z.string().optional(),
   durations: z.array(durationSchema).optional(),
+
+  sessionDurationMode: z.enum(["FIXED", "FLEXIBLE"]).optional(),
+  sessionDuration: z.number().optional(),
+  minDuration: z.number().optional(),
+  maxDuration: z.number().optional(),
 
   coinsAmount: z.number().min(1).optional(),
   bonusCoins: z.number().min(0).optional(),
@@ -158,34 +165,31 @@ if (duplicateDuration) {
     const durations = [];
 
     for (const duration of normalizedDurations) {
-  const pricingRule = await getPricingForPlayers(
-    data.gameId,
-    duration.playersIncluded
-  );
+      const pricingRule = await getPricingForPlayers(
+        data.gameId,
+        duration.playersIncluded
+      );
 
-  if (!pricingRule) {
-    return NextResponse.json(
-      {
-        message: `No pricing rule found for ${duration.playersIncluded} player(s). First create pricing for this player count in Game Pricing Rules.`,
-      },
-      { status: 409 }
-    );
-  }
+      const hasExplicitPrice = duration.finalPrice !== undefined;
+      const originalPrice = hasExplicitPrice ? (duration.originalPrice ?? duration.finalPrice ?? 0) : (pricingRule ? calculateBasePrice(pricingRule, duration.playersIncluded) * duration.totalDays : 0);
+      const finalPrice = hasExplicitPrice ? (duration.finalPrice ?? 0) : calculateFinalPrice(originalPrice, duration.discountType, duration.discountValue || 0);
 
-  const dailyPrice = calculateBasePrice(pricingRule, duration.playersIncluded);
-  const originalPrice = dailyPrice * duration.totalDays;
+      if (!hasExplicitPrice && !pricingRule) {
+        return NextResponse.json(
+          {
+            message: `No pricing rule found for ${duration.playersIncluded} player(s). First create pricing for this player count in Game Pricing Rules.`,
+          },
+          { status: 409 }
+        );
+      }
 
-  durations.push({
-    ...duration,
-    pricingRuleId: pricingRule._id,
-    originalPrice,
-    finalPrice: calculateFinalPrice(
-      originalPrice,
-      duration.discountType,
-      duration.discountValue
-    ),
-  });
-}
+      durations.push({
+        ...duration,
+        pricingRuleId: pricingRule ? pricingRule._id : undefined,
+        originalPrice,
+        finalPrice,
+      });
+    }
 
     const plan = await Plan.create({
       name: data.name,

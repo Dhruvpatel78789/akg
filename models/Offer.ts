@@ -10,6 +10,10 @@ const OfferSchema = new Schema(
     startHour: { type: Number, min: 0, max: 23 }, // e.g. 10 for 10:00
     endHour: { type: Number, min: 0, max: 23 }, // e.g. 15 for 15:00
     gameId: { type: Schema.Types.ObjectId, ref: "Game" }, // Optional limit to specific game
+    applicableGames: { type: [Schema.Types.ObjectId], ref: "Game", default: [] },
+    applyToAllGames: { type: Boolean, default: false },
+    canCombine: { type: Boolean, default: false },
+    allowedOfferIds: [{ type: Schema.Types.ObjectId }],
   },
   { timestamps: true }
 );

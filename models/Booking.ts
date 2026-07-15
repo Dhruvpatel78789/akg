@@ -17,7 +17,15 @@ const BookingSchema = new Schema(
       default: "BOOKED",
     },
     coinCost: { type: Number, default: 0 },
+    subtotal: { type: Number, default: 0 },
     price: { type: Number, default: 0 },
+    appliedPromotions: [
+      {
+        name: String,
+        discountAmount: Number,
+        type: { type: String, enum: ["AUTO_OFFER", "COUPON"] }
+      }
+    ],
     playersCount: { type: Number, default: 1 },
     crossMidnight: { type: Boolean, default: false },
     softDeleted: { type: Boolean, default: false },

@@ -14,6 +14,10 @@ const schema = z.object({
   price: z.number().min(1).optional(),
   validityValue: z.number().min(1).optional(),
   validityUnit: z.enum(["DAYS", "MONTHS"]).optional(),
+  sessionDurationMode: z.enum(["FIXED", "FLEXIBLE"]).optional(),
+  sessionDuration: z.number().optional(),
+  minDuration: z.number().optional(),
+  maxDuration: z.number().optional(),
 });
 
 export async function PATCH(

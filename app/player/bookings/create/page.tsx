@@ -32,7 +32,7 @@ function BookSessionForm() {
   const [isTimeChangedByUser, setIsTimeChangedByUser] = useState(false);
   const [endTime, setEndTime] = useState("");
   const [playersCount, setPlayersCount] = useState(1);
-  const [user, setUser] = useState<{ coins: number } | null>(null);
+  const [user, setUser] = useState<any | null>(null);
 
   const [duration, setDuration] = useState(0);
 
@@ -47,6 +47,7 @@ function BookSessionForm() {
   const [suggestedSlots, setSuggestedSlots] = useState<any[]>([]);
   const [allowCourtSelection, setAllowCourtSelection] = useState(false);
   const [availableCourts, setAvailableCourts] = useState<string[]>([]);
+  const [courts, setCourts] = useState<any[]>([]);
   const [selectedCourt, setSelectedCourt] = useState("");
 
   // Live clock synchronization with server drift safety
@@ -236,12 +237,20 @@ function BookSessionForm() {
 
   const [crossMidnight, setCrossMidnight] = useState(false);
 
-  // Set default duration to game's min duration when game changes
+  const membershipConfig = useMemo(() => {
+    if (!user?.activeFixed || !selectedGameId) return null;
+    if (user.activeFixed.gameId !== selectedGameId) return null;
+    return user.activeFixed.planId || null;
+  }, [user, selectedGameId]);
+
+  // Set default duration to game's min duration or membership duration
   useEffect(() => {
-    if (selectedGame) {
+    if (user?.activeFixed && user.activeFixed.gameId === selectedGameId) {
+      setDuration(user.activeFixed.sessionMinutes || 60);
+    } else if (selectedGame) {
       setDuration(selectedGame.duration);
     }
-  }, [selectedGame]);
+  }, [selectedGame, user, selectedGameId]);
 
   // Handle auto end-time calculation
   useEffect(() => {
@@ -260,12 +269,16 @@ function BookSessionForm() {
   // Adjust duration clicks
   function handleDurationChange(direction: "up" | "down") {
     if (!selectedGame) return;
-    const step = selectedGame.duration;
-    const max = selectedGame.maximumDuration;
+    if (membershipConfig) return; // Membership duration is fixed by plan
+
+    const step = selectedGame.duration || 60;
+    const minLimit = selectedGame.duration || 60;
+    const maxLimit = selectedGame.maximumDuration || 180;
+
     if (direction === "up") {
-      setDuration((prev) => Math.min(max, prev + step));
+      setDuration((prev) => Math.min(maxLimit, prev + step));
     } else {
-      setDuration((prev) => Math.max(step, prev - step));
+      setDuration((prev) => Math.max(minLimit, prev - step));
     }
   }
 
@@ -338,6 +351,7 @@ function BookSessionForm() {
           setCoinCost(data.coinCost);
           setAllowCourtSelection(data.allowCourtSelection || false);
           setAvailableCourts(data.availableCourts || []);
+          setCourts(data.courts || []);
           if (data.available === false) {
             setError(data.reason || "Slot is fully booked");
             setSuggestedSlots(data.suggestedSlots || []);
@@ -355,6 +369,7 @@ function BookSessionForm() {
           setCoinCost(null);
           setSuggestedSlots([]);
           setAvailableCourts([]);
+          setCourts([]);
         }
       } catch (err) {
         console.error(err);
@@ -362,6 +377,7 @@ function BookSessionForm() {
         setError("Network error while checking slot availability");
         setSuggestedSlots([]);
         setAvailableCourts([]);
+        setCourts([]);
       }
     }, 400);
 
@@ -586,21 +602,27 @@ function BookSessionForm() {
                     Duration
                   </span>
                   <div className="flex items-center h-14 rounded-2xl bg-[#EDEBE2] px-4 justify-between font-bold text-[var(--primary)]">
-                    <button
-                      type="button"
-                      onClick={() => handleDurationChange("down")}
-                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm font-black text-lg active:scale-95"
-                    >
-                      -
-                    </button>
-                    <span>{duration} Min</span>
-                    <button
-                      type="button"
-                      onClick={() => handleDurationChange("up")}
-                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm font-black text-lg active:scale-95"
-                    >
-                      +
-                    </button>
+                    {membershipConfig ? (
+                      <span className="w-full text-center">{duration} Min (Fixed)</span>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleDurationChange("down")}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm font-black text-lg active:scale-95"
+                        >
+                          -
+                        </button>
+                        <span>{duration} Min</span>
+                        <button
+                          type="button"
+                          onClick={() => handleDurationChange("up")}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm font-black text-lg active:scale-95"
+                        >
+                          +
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -649,24 +671,43 @@ function BookSessionForm() {
               )}
 
               {/* Court Selection (Per Game Allow setting) */}
-              {allowCourtSelection && available === true && availableCourts.length > 0 && (
+              {allowCourtSelection && courts.length > 0 && (
                 <div className="grid gap-1.5 border-t pt-4 border-gray-100 text-left">
                   <span className="text-xs font-black uppercase text-[var(--text-muted)] tracking-wider">Select Court</span>
-                  <div className="flex flex-wrap gap-2.5">
-                    {availableCourts.map((court) => (
-                      <button
-                        key={court}
-                        type="button"
-                        onClick={() => setSelectedCourt(court)}
-                        className={`h-11 px-5 rounded-xl font-bold text-xs transition active:scale-95 ${
-                          selectedCourt === court
-                            ? "bg-[var(--primary)] text-white"
-                            : "bg-gray-100 text-[var(--primary)] hover:bg-gray-200"
-                        }`}
-                      >
-                        {court}
-                      </button>
-                    ))}
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {courts.map((c) => {
+                      const isAvailable = c.status === "Available";
+                      const isSelected = selectedCourt === c.courtName;
+
+                      return (
+                        <button
+                          key={c.courtId || c.courtName}
+                          type="button"
+                          disabled={!isAvailable}
+                          onClick={() => setSelectedCourt(c.courtName)}
+                          className={`flex flex-col justify-center items-start p-3 rounded-2xl font-bold text-xs transition border text-left ${
+                            isSelected
+                              ? "bg-[var(--primary)] text-white border-[var(--primary)] active:scale-95"
+                              : !isAvailable
+                              ? "bg-gray-50 text-gray-400 border-gray-100 cursor-not-allowed"
+                              : "bg-gray-100 text-[var(--primary)] border-transparent hover:bg-gray-200 active:scale-95"
+                          }`}
+                        >
+                          <span className="font-black text-sm">{c.courtName}</span>
+                          <span className={`text-[9px] font-black uppercase mt-1 px-1.5 py-0.5 rounded-md ${
+                            isSelected
+                              ? "bg-white/20 text-white"
+                              : c.status === "Available"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : c.status === "Held"
+                              ? "bg-amber-100 text-amber-800"
+                              : "bg-red-100 text-red-800"
+                          }`}>
+                            {c.status}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}

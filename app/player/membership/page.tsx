@@ -382,6 +382,17 @@ export default function MembershipPage() {
                           ₹{selectedDuration.originalPrice}
                         </p>
 
+                        <div className="mt-2 mb-3 flex flex-col gap-0.5 text-xs font-bold text-[var(--text-muted)]">
+                          <p>👥 Players Included: <span className="text-[var(--primary)] font-black">{selectedDuration.playersIncluded}</span></p>
+                          {((selectedDuration.months * 30) + (selectedDuration.days || 0)) > 0 && (
+                            <p>
+                              🏷️ Per Player Per Day: <span className="text-[var(--primary)] font-black">
+                                ₹{(selectedDuration.finalPrice / (((selectedDuration.months * 30) + (selectedDuration.days || 0)) * selectedDuration.playersIncluded)).toFixed(2)}
+                              </span>
+                            </p>
+                          )}
+                        </div>
+
                         <div className="mt-3 flex flex-wrap gap-2">
                           {plan.durations?.map((duration, index) => {
                             const active = selectedDurationIndex === index;

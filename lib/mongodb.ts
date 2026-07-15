@@ -6,8 +6,10 @@ import "@/models/User";
 import "@/models/Plan";
 import "@/models/Membership";
 import "@/models/Booking";
-import "@/models/Game";
 import "@/models/Settings";
+import "@/models/CourtHold";
+import "@/models/Offer";
+import "@/models/Coupon";
 
 const MONGODB_URI = process.env.MONGODB_URI!;
 

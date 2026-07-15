@@ -190,38 +190,11 @@ export async function GET(request: Request) {
       }
 
       let availableCourts: string[] = [];
+      let courts: any[] = [];
       if (game.allowCourtSelection) {
-        const { Court } = await import("@/models/court");
-        const { CourtBlock } = await import("@/models/CourtBlock");
-        const courts = await Court.find({ gameId, active: true, disabled: { $ne: true } }).lean();
-        const overlappingBookings = await Booking.find({
-          gameId,
-          status: { $in: ["BOOKED", "STARTED"] },
-          softDeleted: false,
-          startTime: { $lt: end },
-          endTime: { $gt: start },
-          $or: [
-            { paymentStatus: "PAID" },
-            { paymentMethod: "PAY_AT_COUNTER" },
-            { paymentStatus: "PENDING", createdAt: { $gte: new Date(Date.now() - 10 * 60 * 1000) } },
-            { paymentStatus: "PENDING", intentExpiresAt: { $gt: new Date() } }
-          ]
-        }).lean();
-
-        const overlappingBlocks = await CourtBlock.find({
-          gameId,
-          status: { $in: ["ACTIVE", "SCHEDULED"] },
-          blockedFrom: { $lt: end },
-          blockedTo: { $gt: start }
-        }).lean();
-
-        for (const court of courts) {
-          const isBooked = overlappingBookings.some((b) => b.court?.trim().toLowerCase() === court.name.trim().toLowerCase());
-          const isBlocked = overlappingBlocks.some((bl) => bl.courtId.toString() === court._id.toString());
-          if (!isBooked && !isBlocked) {
-            availableCourts.push(court.name);
-          }
-        }
+        const { checkCourtsStatus } = await import("@/lib/availability");
+        courts = await checkCourtsStatus(gameId, start, end);
+        availableCourts = courts.filter((c: any) => c.status === "Available").map((c: any) => c.courtName);
       }
 
       return NextResponse.json({
@@ -234,6 +207,7 @@ export async function GET(request: Request) {
         crossMidnight,
         suggestedSlots,
         availableCourts,
+        courts,
         allowCourtSelection: game.allowCourtSelection,
       });
     }
@@ -383,127 +357,74 @@ export async function POST(request: Request) {
     }
 
     // Court Availability Check
-    const avail = await checkAvailability(gameId, start, end, bookingId);
-    if (!avail.available) {
-      return NextResponse.json({ message: avail.reason || "Slot is not available" }, { status: 409 });
-    }
-
-    let finalCourt = avail.courtName;
+    const { checkCourtsStatus } = await import("@/lib/availability");
+    const courtsStatus = await checkCourtsStatus(gameId, start, end, bookingId);
+    
+    let finalCourt = "";
     if (game.allowCourtSelection && userCourt) {
-      // Verify chosen court is available
-      const queryObj: any = {
-        court: { $regex: new RegExp(`^\\s*${userCourt.trim()}\\s*$`, "i") },
-        status: { $in: ["BOOKED", "STARTED"] },
-        softDeleted: false,
-        startTime: { $lt: end },
-        endTime: { $gt: start },
-        $or: [
-          { paymentStatus: "PAID" },
-          { paymentMethod: "PAY_AT_COUNTER" },
-          { paymentStatus: "PENDING", createdAt: { $gte: new Date(Date.now() - 10 * 60 * 1000) } },
-          { paymentStatus: "PENDING", intentExpiresAt: { $gt: new Date() } }
-        ]
-      };
-      if (bookingId && mongoose.Types.ObjectId.isValid(bookingId)) {
-        queryObj._id = { $ne: new mongoose.Types.ObjectId(bookingId) };
-      }
-      const overlappingBookings = await Booking.find(queryObj);
-      if (overlappingBookings.length > 0) {
-        return NextResponse.json({ message: `Court ${userCourt} is not available for this slot.` }, { status: 409 });
+      const selectedStatus = courtsStatus.find(c => c.courtName.trim().toLowerCase() === userCourt.trim().toLowerCase());
+      if (!selectedStatus || selectedStatus.status !== "Available") {
+        return NextResponse.json({
+          available: false,
+          message: "This court was just booked by another player. Please select another court or time."
+        }, { status: 409 });
       }
       finalCourt = userCourt;
+    } else {
+      const firstAvailable = courtsStatus.find(c => c.status === "Available");
+      if (!firstAvailable) {
+        return NextResponse.json({
+          available: false,
+          message: "This slot is no longer available. Please select another court or time."
+        }, { status: 409 });
+      }
+      finalCourt = firstAvailable.courtName;
     }
 
-    // Auto Offer / Discount check
-    let autoDiscountAmount = 0;
-    let autoDiscountName = "";
-    const { Offer } = await import("@/models/Offer");
-    const bookingDate = new Date(date);
-    const dayOfWeek = bookingDate.getDay();
-    const [hours] = startTime.split(":").map(Number);
-    const offers = await Offer.find({ active: true });
+    const avail = { available: true, courtName: finalCourt };
 
-    let bestOffer = null;
-    let highestAutoDiscount = 0;
-
-    for (const offer of offers) {
-      if (offer.daysOfWeek && offer.daysOfWeek.length > 0) {
-        if (!offer.daysOfWeek.includes(dayOfWeek)) continue;
-      }
-      if (offer.startHour !== undefined && offer.endHour !== undefined) {
-        if (hours < offer.startHour || hours > offer.endHour) continue;
-      }
-      if (offer.gameId && gameId) {
-        if (offer.gameId.toString() !== gameId.toString()) continue;
-      }
-
-      let disc = 0;
-      if (offer.discountType === "FLAT") {
-        disc = offer.value;
-      } else if (offer.discountType === "PERCENTAGE") {
-        disc = (bookingCost * offer.value) / 100;
-      }
-
-      if (disc > highestAutoDiscount) {
-        highestAutoDiscount = disc;
-        bestOffer = offer;
+    // Register checkout hold for online payments
+    if (paymentMethod !== "PAY_AT_COUNTER") {
+      const { CourtHold } = await import("@/models/CourtHold");
+      const { Court } = await import("@/models/court");
+      const courtDoc = await Court.findOne({ gameId, name: { $regex: new RegExp(`^\\s*${finalCourt.trim()}\\s*$`, "i") } });
+      if (courtDoc) {
+        await CourtHold.create({
+          courtId: courtDoc._id,
+          startTime: start,
+          endTime: end,
+          holdExpiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes hold
+          status: "HELD",
+          userId: user._id,
+          paymentOrderId: razorpayOrderId || undefined,
+        });
       }
     }
 
-    autoDiscountAmount = Math.min(highestAutoDiscount, bookingCost);
-    const bookingCostAfterAuto = bookingCost - autoDiscountAmount;
-    if (bestOffer) {
-      autoDiscountName = bestOffer.name;
+    // Auto Offer and Coupon discount calculation
+    const { calculateBestDiscount } = await import("@/lib/offers");
+    const discountsResult = await calculateBestDiscount(
+      bookingCost,
+      gameId,
+      date,
+      startTime,
+      couponId || undefined,
+      user._id
+    );
+
+    if (couponId && discountsResult.couponError) {
+      return NextResponse.json({ message: discountsResult.couponError }, { status: 400 });
     }
 
-    // Coupon discount calculation
-    let discountAmount = 0;
+    const expectedPrice = discountsResult.payableAmount;
+    const appliedPromotions = discountsResult.appliedPromotions;
+    const couponPromo = appliedPromotions.find(p => p.type === "COUPON");
+    const discountAmount = couponPromo ? couponPromo.discountAmount : 0;
     let coupon = null;
-
     if (couponId) {
       coupon = await Coupon.findOne({ _id: couponId, active: true });
-      if (!coupon) {
-        return NextResponse.json({ message: "Coupon code is invalid or inactive." }, { status: 400 });
-      }
-      if (coupon.expiryDate && new Date(coupon.expiryDate) < new Date()) {
-        return NextResponse.json({ message: "Coupon has expired." }, { status: 400 });
-      }
-      const minVal = coupon.minimumOrderValue ?? coupon.minBookingAmount ?? 0;
-      if (bookingCost < minVal) {
-        return NextResponse.json({ message: `This coupon is valid only on orders of ₹${minVal} or more.` }, { status: 400 });
-      }
-      if (coupon.usageLimit > 0 && coupon.usedCount >= coupon.usageLimit) {
-        return NextResponse.json({ message: "Coupon usage limit reached." }, { status: 400 });
-      }
-      const priorUsage = await CouponUsage.findOne({ couponId: coupon._id, userId: user._id });
-      if (priorUsage) {
-        return NextResponse.json({ message: "You have already used this coupon code." }, { status: 400 });
-      }
-
-      // If a coupon is applied, do not apply auto offers
-      autoDiscountAmount = 0;
-      autoDiscountName = "";
-      const basePriceForCoupon = bookingCost;
-
-      const type = coupon.discountType || coupon.type;
-      const value = coupon.discountValue ?? coupon.value ?? 0;
-      const maxDiscount = coupon.maximumDiscount ?? coupon.maxDiscount;
-
-      if (type === "FLAT") {
-        discountAmount = value;
-        if (maxDiscount !== undefined && maxDiscount !== null && maxDiscount > 0) {
-          discountAmount = Math.min(discountAmount, maxDiscount);
-        }
-      } else if (type === "PERCENTAGE") {
-        discountAmount = (basePriceForCoupon * value) / 100;
-        if (maxDiscount !== undefined && maxDiscount !== null && maxDiscount > 0) {
-          discountAmount = Math.min(discountAmount, maxDiscount);
-        }
-      }
-      discountAmount = Math.min(discountAmount, basePriceForCoupon);
     }
 
-    const expectedPrice = Math.max(0, bookingCost - autoDiscountAmount - discountAmount);
     const isFree = expectedPrice <= 0;
 
     const isPayAtCounter = paymentMethod === "PAY_AT_COUNTER";
@@ -530,6 +451,7 @@ export async function POST(request: Request) {
         existingBooking.startTime = start;
         existingBooking.endTime = end;
         existingBooking.playersCount = count;
+        existingBooking.subtotal = bookingCost;
         existingBooking.price = expectedPrice;
         existingBooking.paymentMethod = "PAY_AT_COUNTER";
         existingBooking.paymentMode = "cash";
@@ -538,6 +460,7 @@ export async function POST(request: Request) {
         existingBooking.adminPaymentStatus = "PENDING";
         existingBooking.effectivePaymentStatus = "PENDING";
         existingBooking.status = "BOOKED";
+        existingBooking.appliedPromotions = appliedPromotions as any;
 
         await existingBooking.save();
 
@@ -565,6 +488,7 @@ export async function POST(request: Request) {
         startTime: start,
         endTime: end,
         coinCost: 0,
+        subtotal: bookingCost,
         price: expectedPrice,
         playersCount: count,
         crossMidnight,
@@ -576,6 +500,7 @@ export async function POST(request: Request) {
         gatewayPaymentStatus: "PENDING",
         adminPaymentStatus: "PENDING",
         effectivePaymentStatus: "PENDING",
+        appliedPromotions: appliedPromotions as any,
       });
 
       if (coupon) {
@@ -628,9 +553,11 @@ export async function POST(request: Request) {
       existingBooking.startTime = start;
       existingBooking.endTime = end;
       existingBooking.playersCount = count;
+      existingBooking.subtotal = bookingCost;
       existingBooking.price = expectedPrice;
       existingBooking.paymentStatus = "PAID";
       existingBooking.status = "BOOKED";
+      existingBooking.appliedPromotions = appliedPromotions as any;
 
       await existingBooking.save();
 
@@ -697,6 +624,7 @@ export async function POST(request: Request) {
         paymentStatus: "PAID",
         adminPaymentStatus: "WAIVED",
         paymentMode: "coins",
+        appliedPromotions: appliedPromotions as any,
       });
 
       return NextResponse.json({ success: true, message: "Booking created under membership", booking });
@@ -731,7 +659,9 @@ export async function POST(request: Request) {
         startTime: start,
         endTime: end,
         coinCost: 0, // No coins deducted
+        subtotal: bookingCost,
         price: expectedPrice, // Store cash price
+        appliedPromotions: appliedPromotions as any,
         playersCount: count,
         crossMidnight,
         status: "BOOKED",
@@ -777,7 +707,9 @@ export async function POST(request: Request) {
         startTime: start,
         endTime: end,
         coinCost: coinCostToDeduct,
+        subtotal: bookingCost,
         price: priceToPay,
+        appliedPromotions: appliedPromotions as any,
         playersCount: count,
         crossMidnight,
         status: "BOOKED",

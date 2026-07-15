@@ -79,6 +79,28 @@ export async function POST(req: NextRequest) {
         booking.paidAt = new Date();
         await booking.save();
 
+        // Confirm associated court holds
+        try {
+          const { CourtHold } = await import("@/models/CourtHold");
+          const { Court } = await import("@/models/court");
+          if (booking.court) {
+            const courtDoc = await Court.findOne({ name: { $regex: new RegExp(`^\\s*${booking.court.trim()}\\s*$`, "i") } });
+            if (courtDoc) {
+              await CourtHold.updateMany(
+                {
+                  courtId: courtDoc._id,
+                  startTime: booking.startTime,
+                  endTime: booking.endTime,
+                  status: "HELD"
+                },
+                { $set: { status: "CONFIRMED" } }
+              );
+            }
+          }
+        } catch (holdErr) {
+          console.error("Failed to confirm court hold in verification:", holdErr);
+        }
+
         if (booking.coinCost > 0) {
           const { User } = await import("@/models/User");
           const user = await User.findById(booking.userId);

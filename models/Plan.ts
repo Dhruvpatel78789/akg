@@ -56,6 +56,15 @@ const PlanSchema = new Schema(
 
     durations: [DurationSchema],
 
+    sessionDurationMode: {
+      type: String,
+      enum: ["FIXED", "FLEXIBLE"],
+      default: "FIXED",
+    },
+    sessionDuration: { type: Number, default: 60 },
+    minDuration: { type: Number, default: 30 },
+    maxDuration: { type: Number, default: 180 },
+
     coinsAmount: Number,
     bonusCoins: { type: Number, default: 0 },
     validityDays: { type: Number, default: 30 },

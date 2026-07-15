@@ -3,13 +3,14 @@
 import { ArrowLeft, Clock } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 
 type DurationOption = {
   label: string;
   months: number;
   days?: number;
   playersIncluded: number;
+  perDayDuration?: number;
   originalPrice: number;
   finalPrice: number;
 };
@@ -26,11 +27,14 @@ type Plan = {
   price?: number;
   coinsAmount?: number;
   bonusCoins?: number;
+  sessionDuration?: number;
   game?: {
     name: string;
     duration: number;
     maximumDuration: number;
     bufferMinutes?: number;
+    fixedSlotBooking?: boolean;
+    allowCourtSelection?: boolean;
   };
 };
 
@@ -56,6 +60,18 @@ export default function ConfigurePlanPage() {
   const [endTime, setEndTime] = useState("");
   const [error, setError] = useState("");
   const [validationError, setValidationError] = useState("");
+
+  const fixedSlots = useMemo(() => {
+    if (!plan?.game || !plan.game.fixedSlotBooking) return [];
+    const minDur = plan.game.duration || 60;
+    const slots: string[] = [];
+    for (let mins = 0; mins < 1440; mins += minDur) {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      slots.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+    }
+    return slots;
+  }, [plan]);
 
   useEffect(() => {
     if (!plan) return;
@@ -89,12 +105,29 @@ export default function ConfigurePlanPage() {
     setValidationError("");
   }, [plan, selectedDurationIndex, startTime, duration]);
 
-  // Set default duration to game's min duration when plan loads
+  // Set default duration to selected duration option's perDayDuration or game's duration when plan loads/changes
   useEffect(() => {
-    if (plan?.game) {
-      setDuration(plan.game.duration);
+    if (plan) {
+      const selectedDuration = plan.durations?.[selectedDurationIndex];
+      const fixedDur = selectedDuration?.perDayDuration || plan.game?.duration || 60;
+      setDuration(fixedDur);
+      if (plan.game?.fixedSlotBooking) {
+        // Calculate nearest or first slot
+        const minDur = plan.game?.duration || 60;
+        const now = new Date();
+        const currentHours = now.getHours();
+        const currentMinutes = now.getMinutes();
+        const totalMinutes = currentHours * 60 + currentMinutes;
+        const remainder = totalMinutes % minDur;
+        const nextSlotMinutes = totalMinutes + (minDur - remainder);
+        const finalMinutes = nextSlotMinutes >= 1440 ? 0 : nextSlotMinutes;
+        const h = Math.floor(finalMinutes / 60);
+        const m = finalMinutes % 60;
+        const nearestSlot = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+        setStartTime(nearestSlot);
+      }
     }
-  }, [plan]);
+  }, [plan, selectedDurationIndex]);
 
   // Handle auto end-time calculation
   useEffect(() => {
@@ -309,17 +342,32 @@ export default function ConfigurePlanPage() {
                         Start Time
                       </span>
                       <div className="relative">
-                        <input
-                          type="time"
-                          value={startTime}
-                          onChange={(event) => setStartTime(event.target.value)}
-                          onClick={(e) => {
-                            try {
-                              e.currentTarget.showPicker();
-                            } catch (err) {}
-                          }}
-                          className="h-14 w-full rounded-full bg-white pl-12 pr-5 font-bold outline-none ring-1 ring-black/5 cursor-pointer"
-                        />
+                        {plan.game?.fixedSlotBooking ? (
+                          <select
+                            value={startTime}
+                            onChange={(event) => setStartTime(event.target.value)}
+                            className="h-14 w-full rounded-full bg-white pl-12 pr-5 font-bold outline-none ring-1 ring-black/5 cursor-pointer appearance-none"
+                          >
+                            <option value="">Select Slot</option>
+                            {fixedSlots.map((slot) => (
+                              <option key={slot} value={slot}>
+                                {slot}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            type="time"
+                            value={startTime}
+                            onChange={(event) => setStartTime(event.target.value)}
+                            onClick={(e) => {
+                              try {
+                                e.currentTarget.showPicker();
+                              } catch (err) {}
+                            }}
+                            className="h-14 w-full rounded-full bg-white pl-12 pr-5 font-bold outline-none ring-1 ring-black/5 cursor-pointer"
+                          />
+                        )}
                         <Clock size={18} className="absolute left-4 top-4.5 text-[var(--primary)]/70 pointer-events-none" />
                       </div>
                     </label>
@@ -328,22 +376,8 @@ export default function ConfigurePlanPage() {
                       <span className="text-xs font-black uppercase text-[var(--text-muted)]">
                         Duration
                       </span>
-                      <div className="flex items-center h-14 rounded-full bg-[#EDEBE2] px-4 justify-between font-bold text-[var(--primary)]">
-                        <button
-                          type="button"
-                          onClick={() => handleDurationChange("down")}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm font-black text-lg active:scale-95"
-                        >
-                          -
-                        </button>
+                      <div className="flex items-center h-14 rounded-full bg-[#EDEBE2] px-4 justify-center font-bold text-[var(--primary)]">
                         <span>{duration} Min</span>
-                        <button
-                          type="button"
-                          onClick={() => handleDurationChange("up")}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm font-black text-lg active:scale-95"
-                        >
-                          +
-                        </button>
                       </div>
                     </div>
                   </div>

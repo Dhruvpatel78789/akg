@@ -136,6 +136,10 @@ export default function AdminPromotionsPage() {
     daysOfWeek: [] as number[],
     startHour: 10,
     endHour: 17,
+    applicableGames: [] as string[],
+    applyToAllGames: false,
+    canCombine: false,
+    allowedOfferIds: [] as string[],
   });
 
   // Loaders
@@ -432,6 +436,10 @@ export default function AdminPromotionsPage() {
         daysOfWeek: [],
         startHour: 10,
         endHour: 17,
+        applicableGames: [],
+        applyToAllGames: false,
+        canCombine: false,
+        allowedOfferIds: [],
       });
       loadOffers();
     } catch (err) {
@@ -1463,6 +1471,140 @@ export default function AdminPromotionsPage() {
                   className="h-11 rounded-xl bg-gray-50 border px-4 font-bold outline-none focus:ring-1 focus:ring-[var(--primary)]"
                 />
               </label>
+            </div>
+
+            {/* Applicable Games */}
+            <div className="grid gap-2 border-t pt-4 border-gray-100">
+              <span className="text-[10px] font-black uppercase text-gray-400">Applicable Games</span>
+              <label className="flex items-center gap-2 text-xs font-bold text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={offerForm.applyToAllGames}
+                  onChange={(e) => setOfferForm((prev) => ({
+                    ...prev,
+                    applyToAllGames: e.target.checked,
+                    applicableGames: e.target.checked ? [] : prev.applicableGames
+                  }))}
+                  className="rounded border-gray-300 text-[var(--primary)] focus:ring-[var(--primary)]"
+                />
+                Apply to All Games
+              </label>
+
+              {!offerForm.applyToAllGames && (
+                <div className="mt-2 space-y-2">
+                  <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-2 bg-gray-50 rounded-xl border border-gray-100">
+                    {games.map((game) => {
+                      const isSelected = offerForm.applicableGames.includes(game._id);
+                      return (
+                        <label key={game._id} className="flex items-center gap-1.5 px-3 py-1.5 bg-white border rounded-xl text-xs font-bold cursor-pointer hover:bg-gray-50">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {
+                              setOfferForm((prev) => {
+                                const active = prev.applicableGames.includes(game._id);
+                                return {
+                                  ...prev,
+                                  applicableGames: active
+                                    ? prev.applicableGames.filter((id) => id !== game._id)
+                                    : [...prev.applicableGames, game._id]
+                                };
+                              });
+                            }}
+                            className="rounded border-gray-300 text-[var(--primary)] focus:ring-[var(--primary)]"
+                          />
+                          {game.name}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Stacking / Stacking Rules */}
+            <div className="grid gap-2 border-t pt-4 border-gray-100">
+              <span className="text-[10px] font-black uppercase text-gray-400">Offer Combination Rules</span>
+              <label className="grid gap-1">
+                <span className="text-xs font-bold text-gray-600">Can this offer be combined with other offers?</span>
+                <select
+                  value={offerForm.canCombine ? "YES" : "NO"}
+                  onChange={(e) => setOfferForm((prev) => ({
+                    ...prev,
+                    canCombine: e.target.value === "YES",
+                    allowedOfferIds: e.target.value === "YES" ? prev.allowedOfferIds : []
+                  }))}
+                  className="h-11 rounded-xl bg-gray-50 border px-4 font-bold outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                >
+                  <option value="NO">No</option>
+                  <option value="YES">Yes</option>
+                </select>
+              </label>
+
+              {offerForm.canCombine && (
+                <div className="mt-2 space-y-2">
+                  <span className="text-xs font-bold text-gray-600">Allowed Combined Offers</span>
+                  <div className="grid gap-2 max-h-48 overflow-y-auto p-2.5 bg-gray-50 rounded-xl border border-gray-100">
+                    {/* List coupons */}
+                    <div className="text-[9px] font-black text-gray-400 uppercase tracking-wider">Coupons</div>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {coupons.map((coupon) => {
+                        const isSelected = offerForm.allowedOfferIds.includes(coupon._id);
+                        return (
+                          <label key={coupon._id} className="flex items-center gap-1.5 px-3 py-1.5 bg-white border rounded-xl text-xs font-bold cursor-pointer hover:bg-gray-50">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                setOfferForm((prev) => {
+                                  const active = prev.allowedOfferIds.includes(coupon._id);
+                                  return {
+                                    ...prev,
+                                    allowedOfferIds: active
+                                      ? prev.allowedOfferIds.filter((id) => id !== coupon._id)
+                                      : [...prev.allowedOfferIds, coupon._id]
+                                  };
+                                });
+                              }}
+                              className="rounded border-gray-300 text-[var(--primary)] focus:ring-[var(--primary)]"
+                            />
+                            {coupon.code}
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    {/* List other auto-offers */}
+                    <div className="text-[9px] font-black text-gray-400 uppercase tracking-wider">Auto Offers</div>
+                    <div className="flex flex-wrap gap-2">
+                      {offers.map((offer) => {
+                        const isSelected = offerForm.allowedOfferIds.includes(offer._id);
+                        return (
+                          <label key={offer._id} className="flex items-center gap-1.5 px-3 py-1.5 bg-white border rounded-xl text-xs font-bold cursor-pointer hover:bg-gray-50">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                setOfferForm((prev) => {
+                                  const active = prev.allowedOfferIds.includes(offer._id);
+                                  return {
+                                    ...prev,
+                                    allowedOfferIds: active
+                                      ? prev.allowedOfferIds.filter((id) => id !== offer._id)
+                                      : [...prev.allowedOfferIds, offer._id]
+                                  };
+                                });
+                              }}
+                              className="rounded border-gray-300 text-[var(--primary)] focus:ring-[var(--primary)]"
+                            />
+                            {offer.name}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <button className="h-12 w-full rounded-full bg-[var(--primary)] text-xs font-black text-white hover:opacity-90 active:scale-95 transition">

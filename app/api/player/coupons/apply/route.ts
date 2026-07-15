@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     await connectDB();
     const authUser = await getAuthUser();
     const body = await req.json();
-    const { code, bookingAmount, isMembershipPurchase, gameId } = body;
+    const { code, bookingAmount, isMembershipPurchase, gameId, bookingId } = body;
 
     if (!code || bookingAmount === undefined) {
       return NextResponse.json({ success: false, valid: false, message: "Missing code or bookingAmount" }, { status: 400 });
@@ -89,6 +89,24 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Validate combination compatibility with any active auto-offers for this slot
+    let finalGameId = gameId;
+    let finalDate = "";
+    let finalStartTime = "";
+
+    if (bookingId && mongoose.Types.ObjectId.isValid(bookingId)) {
+      const { Booking } = await import("@/models/Booking");
+      const bookingDoc = await Booking.findById(bookingId).lean();
+      if (bookingDoc) {
+        finalGameId = bookingDoc.gameId?.toString();
+        if (bookingDoc.startTime) {
+          const sTime = new Date(bookingDoc.startTime);
+          finalStartTime = `${String(sTime.getHours()).padStart(2, "0")}:${String(sTime.getMinutes()).padStart(2, "0")}`;
+          finalDate = sTime.toISOString().split("T")[0];
+        }
+      }
+    }
+
     // Safe calculations
     const type = coupon.discountType || coupon.type;
     const value = coupon.discountValue ?? coupon.value ?? 0;
@@ -107,8 +125,26 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Safety checks
     discount = Math.min(discount, billAmount);
+
+    let appliedPromotions: any[] = [];
+    if (finalGameId && finalDate && finalStartTime) {
+      const { calculateBestDiscount } = await import("@/lib/offers");
+      const resDiscount = await calculateBestDiscount(
+        billAmount,
+        finalGameId,
+        finalDate,
+        finalStartTime,
+        coupon._id.toString(),
+        authUser?.userId
+      );
+      if (resDiscount.couponError) {
+        return NextResponse.json({ success: false, valid: false, message: resDiscount.couponError }, { status: 400 });
+      }
+      discount = resDiscount.totalDiscount;
+      appliedPromotions = resDiscount.appliedPromotions;
+    }
+
     const payableAmount = Math.max(0, billAmount - discount);
 
     return NextResponse.json({
@@ -122,7 +158,10 @@ export async function POST(req: NextRequest) {
       billAmount,
       discountAmount: discount,
       payableAmount,
+      appliedPromotions,
     });
+
+
   } catch (err: any) {
     return NextResponse.json({ success: false, valid: false, message: err.message }, { status: 500 });
   }

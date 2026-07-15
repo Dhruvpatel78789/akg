@@ -46,6 +46,7 @@ export async function PATCH(
   const nextRule = {
     minPlayers: result.data.minPlayers ?? existingRule.minPlayers,
     maxPlayers: result.data.maxPlayers ?? existingRule.maxPlayers,
+    durationMinutes: existingRule.durationMinutes,
   };
 
   if (nextRule.minPlayers > nextRule.maxPlayers) {
@@ -58,6 +59,7 @@ export async function PATCH(
   const otherRules = await PricingRule.find({
     _id: { $ne: id },
     gameId: existingRule.gameId,
+    durationMinutes: nextRule.durationMinutes,
     active: true,
   }).lean();
 

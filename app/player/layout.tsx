@@ -28,7 +28,7 @@ export default async function MembershipLayout({
     if (isPublicPath) {
       return <>{children}</>;
     }
-    redirect("/auth/login");
+    redirect("/");
   }
 
   await connectDB();
@@ -37,7 +37,7 @@ export default async function MembershipLayout({
     if (isPublicPath) {
       return <>{children}</>;
     }
-    redirect("/auth/login");
+    redirect("/");
   }
 
   // Redirect if they must change their password, except on the profile page itself

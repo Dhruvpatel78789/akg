@@ -23,7 +23,7 @@ export async function GET(
 
   const game = plan.gameId
     ? await Game.findById(plan.gameId)
-        .select("name duration maximumDuration")
+        .select("name duration maximumDuration fixedSlotBooking allowCourtSelection")
         .lean()
     : null;
 

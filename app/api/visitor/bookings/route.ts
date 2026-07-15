@@ -171,35 +171,58 @@ export async function POST(request: Request) {
     }
 
     // Check slot availability
-    const avail = await checkAvailability(gameId, start, end);
-    if (!avail.available) {
-      return NextResponse.json({ message: avail.reason || "Slot is not available" }, { status: 409 });
-    }
+    const { checkCourtsStatus } = await import("@/lib/availability");
+    const courtsStatus = await checkCourtsStatus(gameId, start, end);
 
-    let finalCourt = avail.courtName;
+    let finalCourt = "";
     if (game.allowCourtSelection && userCourt) {
-      // Verify chosen court is available
-      const { checkCourtAvailability } = await import("@/lib/availability");
-      const specAvail = await checkCourtAvailability(gameId, start, end);
-      // Wait, let's verify if userCourt is indeed free
-      const overlappingBookings = await Booking.find({
-        court: { $regex: new RegExp(`^\\s*${userCourt.trim()}\\s*$`, "i") },
-        status: { $in: ["BOOKED", "STARTED"] },
-        softDeleted: false,
-        startTime: { $lt: end },
-        endTime: { $gt: start },
-        $or: [
-          { paymentStatus: "PAID" },
-          { paymentMethod: "PAY_AT_COUNTER" },
-          { paymentStatus: "PENDING", createdAt: { $gte: new Date(Date.now() - 10 * 60 * 1000) } },
-          { paymentStatus: "PENDING", intentExpiresAt: { $gt: new Date() } }
-        ]
-      });
-      if (overlappingBookings.length > 0) {
-        return NextResponse.json({ message: `Court ${userCourt} is not available for this slot.` }, { status: 409 });
+      const selectedStatus = courtsStatus.find(c => c.courtName.trim().toLowerCase() === userCourt.trim().toLowerCase());
+      if (!selectedStatus || selectedStatus.status !== "Available") {
+        return NextResponse.json({
+          available: false,
+          message: "This court was just booked by another player. Please select another court or time."
+        }, { status: 409 });
       }
       finalCourt = userCourt;
+    } else {
+      const firstAvailable = courtsStatus.find(c => c.status === "Available");
+      if (!firstAvailable) {
+        return NextResponse.json({
+          available: false,
+          message: "This slot is no longer available. Please select another court or time."
+        }, { status: 409 });
+      }
+      finalCourt = firstAvailable.courtName;
     }
+
+    // Register checkout hold for online payments
+    if (paymentMethod !== "PAY_AT_COUNTER") {
+      const { CourtHold } = await import("@/models/CourtHold");
+      const { Court } = await import("@/models/court");
+      const courtDoc = await Court.findOne({ gameId, name: { $regex: new RegExp(`^\\s*${finalCourt.trim()}\\s*$`, "i") } });
+      if (courtDoc) {
+        await CourtHold.create({
+          courtId: courtDoc._id,
+          startTime: start,
+          endTime: end,
+          holdExpiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes hold
+          status: "HELD",
+          userId: user._id,
+        });
+      }
+    }
+
+    const { calculateBestDiscount } = await import("@/lib/offers");
+    const discountsResult = await calculateBestDiscount(
+      price,
+      gameId,
+      date,
+      startTime,
+      undefined,
+      user._id
+    );
+    const expectedPrice = discountsResult.payableAmount;
+    const appliedPromotions = discountsResult.appliedPromotions;
 
     const intentCreatedAt = new Date();
     const intentExpiresAt = new Date(intentCreatedAt.getTime() + 10 * 60 * 1000);
@@ -212,7 +235,9 @@ export async function POST(request: Request) {
       court: finalCourt,
       startTime: start,
       endTime: end,
-      price,
+      subtotal: price,
+      price: expectedPrice,
+      appliedPromotions: appliedPromotions as any,
       coinCost: 0,
       playersCount: count,
       crossMidnight,
@@ -230,7 +255,7 @@ export async function POST(request: Request) {
       role: user.role,
     });
 
-    const response = NextResponse.json({ success: true, booking, amount: price, name: user.name });
+    const response = NextResponse.json({ success: true, booking, amount: expectedPrice, name: user.name });
     response.cookies.set("auth_token", token, {
       httpOnly: true,
       sameSite: "strict",

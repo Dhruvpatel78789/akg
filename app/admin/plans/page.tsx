@@ -84,6 +84,10 @@ export default function AdminPlansPage() {
     validityValue: 30,
     validityUnit: "DAYS" as "DAYS" | "MONTHS",
     active: true,
+    sessionDurationMode: "FIXED" as "FIXED" | "FLEXIBLE",
+    sessionDuration: 60,
+    minDuration: 30,
+    maxDuration: 180,
   });
 
   const [duration, setDuration] = useState<DurationOption>({
@@ -125,6 +129,16 @@ export default function AdminPlansPage() {
       });
     }
   }, [perDayDurationOptions]);
+
+  useEffect(() => {
+    if (selectedGame && !form.sessionDuration) {
+      setForm((prev) => ({
+        ...prev,
+        sessionDurationMode: "FIXED",
+        sessionDuration: selectedGame.duration || 60,
+      }));
+    }
+  }, [selectedGame]);
 
   async function loadData() {
     const [plansRes, gamesRes] = await Promise.all([
@@ -246,6 +260,10 @@ export default function AdminPlansPage() {
             allowUserTimeSelection: form.allowUserTimeSelection,
             adminStartTime: form.adminStartTime,
             adminEndTime: form.adminEndTime,
+            sessionDurationMode: form.sessionDurationMode,
+            sessionDuration: form.sessionDuration,
+            minDuration: form.minDuration,
+            maxDuration: form.maxDuration,
             durations: durations.map((item) => ({
               label: item.label,
               months: item.months,
@@ -254,6 +272,8 @@ export default function AdminPlansPage() {
               perDayDuration: item.perDayDuration,
               discountType: item.discountType,
               discountValue: item.discountValue,
+              originalPrice: item.originalPrice,
+              finalPrice: calculateFinalPrice(item),
             })),
             active: form.active,
           }
@@ -514,6 +534,8 @@ export default function AdminPlansPage() {
     className="pointer-events-none absolute right-4 top-[42px] text-gray-500"
   />
 </div>
+
+
 
                   <label className="grid gap-1">
                     <span className="text-xs font-black uppercase text-[var(--text-muted)]">

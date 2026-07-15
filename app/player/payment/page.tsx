@@ -91,6 +91,28 @@ function UnifiedPaymentForm() {
     return diffMins <= payAtCounterWindow && diffMins >= -15;
   }, [type, bookingDate, bookingStartTime, payAtCounterWindow]);
 
+  // Discount Coupons
+  const [couponCode, setCouponCode] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
+  const [serverAppliedPromotions, setServerAppliedPromotions] = useState<any[] | null>(null);
+  const [couponError, setCouponError] = useState("");
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [showManualCoupon, setShowManualCoupon] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [availableCoupons, setAvailableCoupons] = useState<any[]>([]);
+
+  // Load available coupons
+  useEffect(() => {
+    fetch("/api/player/coupons")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.coupons) {
+          setAvailableCoupons(data.coupons);
+        }
+      })
+      .catch((e) => console.error("Error loading coupons:", e));
+  }, []);
+
   // Promotion State
   const [promotions, setPromotions] = useState<any[]>([]);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
@@ -212,75 +234,46 @@ function UnifiedPaymentForm() {
     }
   }, [paymentSuccess, router]);
 
-  // Price Calculation
-  const amountToPay = useMemo(() => {
+  // Price and Promotions Calculation
+  const subtotalAmount = useMemo(() => {
     if (type === "plan" && plan) {
       if (plan.type === "COINS") {
         return plan.price;
       }
       return plan.durations?.[durationIndex]?.finalPrice || 0;
     }
-    if (type === "booking") {
-      if (bookingDetails) {
-        return bookingDetails.price;
-      }
-      return coinCost;
+    if (type === "booking" && bookingDetails) {
+      return bookingDetails.subtotal || bookingDetails.price || 0;
     }
     return 0;
-  }, [type, plan, durationIndex, coinCost, bookingDetails]);
+  }, [type, plan, durationIndex, bookingDetails]);
 
-  // Discount Coupons
-  const [couponCode, setCouponCode] = useState("");
-  const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
-  const [couponError, setCouponError] = useState("");
-  const [couponLoading, setCouponLoading] = useState(false);
-  const [showManualCoupon, setShowManualCoupon] = useState(false);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [availableCoupons, setAvailableCoupons] = useState<any[]>([]);
-
-  // Load available coupons
-  useEffect(() => {
-    fetch("/api/player/coupons")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && data.coupons) {
-          setAvailableCoupons(data.coupons);
-        }
-      })
-      .catch((e) => console.error("Error loading coupons:", e));
-  }, []);
-
-  const autoDiscountAmount = useMemo(() => {
-    if (appliedCoupon) return 0;
-    if (!autoOffer) return 0;
-    return autoOffer.discountAmount;
-  }, [autoOffer, appliedCoupon]);
-
-  const discountAmount = useMemo(() => {
-    if (!appliedCoupon) return 0;
-    const base = Math.max(0, amountToPay - autoDiscountAmount);
-    let disc = 0;
-    const type = appliedCoupon.type;
-    const value = appliedCoupon.value;
-    const maxDiscount = appliedCoupon.maxDiscount;
-
-    if (type === "FLAT") {
-      disc = value;
-      if (maxDiscount > 0) {
-        disc = Math.min(disc, maxDiscount);
-      }
-    } else if (type === "PERCENTAGE") {
-      disc = (base * value) / 100;
-      if (maxDiscount > 0 && disc > maxDiscount) {
-        disc = maxDiscount;
-      }
+  const promotionsToDisplay = useMemo(() => {
+    if (serverAppliedPromotions) {
+      return serverAppliedPromotions;
     }
-    return Math.min(disc, base);
-  }, [appliedCoupon, amountToPay, autoDiscountAmount]);
+    if (type === "booking" && bookingDetails) {
+      return bookingDetails.appliedPromotions || [];
+    }
+    return [];
+  }, [type, serverAppliedPromotions, bookingDetails]);
+
+  const totalDiscount = useMemo(() => {
+    return promotionsToDisplay.reduce((sum: number, p: any) => sum + (p.discountAmount || 0), 0);
+  }, [promotionsToDisplay]);
 
   const finalAmountToPay = useMemo(() => {
-    return Math.max(0, amountToPay - autoDiscountAmount - discountAmount);
-  }, [amountToPay, autoDiscountAmount, discountAmount]);
+    if (type === "plan") return subtotalAmount;
+    if (type === "booking" && bookingDetails) {
+      if (serverAppliedPromotions) {
+        return Math.max(0, subtotalAmount - totalDiscount);
+      }
+      return bookingDetails.price;
+    }
+    return 0;
+  }, [type, subtotalAmount, bookingDetails, serverAppliedPromotions, totalDiscount]);
+
+
 
   // Expiration timer logic
   useEffect(() => {
@@ -334,8 +327,9 @@ function UnifiedPaymentForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code: couponCode.trim(),
-          bookingAmount: amountToPay,
+          bookingAmount: subtotalAmount,
           isMembershipPurchase: type === "plan",
+          bookingId: bookingId || undefined,
         }),
       });
       const data = await res.json();
@@ -347,6 +341,9 @@ function UnifiedPaymentForm() {
           value: data.discountValue !== undefined ? data.discountValue : data.value,
           maxDiscount: data.maxDiscount || 0,
         });
+        if (data.appliedPromotions) {
+          setServerAppliedPromotions(data.appliedPromotions);
+        }
       } else {
         setCouponError(data.message || "Invalid coupon code");
       }
@@ -617,7 +614,7 @@ function UnifiedPaymentForm() {
                             <p><strong>Date:</strong> ${bookingDate || new Date().toLocaleDateString("en-IN")}</p>
                             <p><strong>Time:</strong> ${bookingStartTime} - ${bookingEndTime}</p>
                             <p><strong>Players Count:</strong> ${playersCount}</p>
-                            <p><strong>Paid Amount:</strong> ₹${amountToPay}</p>
+                            <p><strong>Paid Amount:</strong> ₹${subtotalAmount - totalDiscount}</p>
                             <hr />
                             <p style="text-align: center; font-size: 12px; font-weight: bold;">Thank you for playing at Akshar Game Zone!</p>
                           </div>
@@ -848,7 +845,7 @@ function UnifiedPaymentForm() {
                 )}
                 {appliedCoupon && (
                   <p className="text-[10px] font-bold text-emerald-600 flex items-center gap-1">
-                    ✓ Coupon <strong>{appliedCoupon.code}</strong> applied! You saved ₹{discountAmount}.
+                    ✓ Coupon <strong>{appliedCoupon.code}</strong> applied! You saved ₹{totalDiscount}.
                   </p>
                 )}
               </div>
@@ -859,22 +856,17 @@ function UnifiedPaymentForm() {
               <div className="space-y-2 mb-4">
                 <div className="flex justify-between items-center text-xs font-semibold text-gray-500">
                   <span>Subtotal</span>
-                  <span>₹{amountToPay}</span>
+                  <span>₹{subtotalAmount}</span>
                 </div>
 
-                {autoOffer && autoDiscountAmount > 0 && (
-                  <div className="flex justify-between items-center text-xs font-semibold text-emerald-600">
-                    <span>Auto Discount: {autoOffer.name}</span>
-                    <span>-₹{autoDiscountAmount}</span>
+                {promotionsToDisplay.map((promo: any, idx: number) => (
+                  <div key={idx} className="flex justify-between items-center text-xs font-semibold text-emerald-600">
+                    <span>
+                      {promo.type === "COUPON" ? "Coupon Code" : "Auto Applied"}: {promo.name}
+                    </span>
+                    <span>-₹{promo.discountAmount}</span>
                   </div>
-                )}
-
-                {appliedCoupon && (
-                  <div className="flex justify-between items-center text-xs font-semibold text-emerald-600">
-                    <span>Coupon Discount</span>
-                    <span>-₹{discountAmount}</span>
-                  </div>
-                )}
+                ))}
               </div>
 
               <hr className="border-gray-100 my-4" />
