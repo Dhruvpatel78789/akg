@@ -18,6 +18,8 @@ type Booking = {
   endTime: string;
   playersCount: number;
   price: number;
+  coinCost?: number;
+  paymentMode?: string;
   status: string;
   paymentMethod?: string;
   paymentStatus: string;
@@ -609,8 +611,12 @@ export default function AdminPassesPage() {
                     </p>
                   </div>
                   <div>
-                    <span className="text-[9px] sm:text-[10px] uppercase text-gray-400 font-black">Total Cost</span>
-                    <p className="text-xs sm:text-sm text-rose-600 font-black">₹{b.price}</p>
+                    <span className="text-[9px] sm:text-[10px] uppercase text-gray-400 font-black">
+                      {(b.coinCost ?? 0) > 0 || b.paymentMode === "coins" ? "Paid by Coin" : "Total Cost"}
+                    </span>
+                    <p className="text-xs sm:text-sm text-rose-600 font-black">
+                      {(b.coinCost ?? 0) > 0 || b.paymentMode === "coins" ? `${b.coinCost} Coins` : `₹${b.price}`}
+                    </p>
                   </div>
                 </div>
               </div>

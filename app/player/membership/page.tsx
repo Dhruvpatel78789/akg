@@ -374,6 +374,20 @@ export default function MembershipPage() {
                   <div className="mt-4">
                     {plan.type === "FIXED" && selectedDuration && (
                       <>
+                        <div className="absolute right-5 top-5 text-right z-20">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)] block leading-none mb-1">Players</span>
+                          <span className="text-4xl font-black" style={{ color: planColor }}>{selectedDuration.playersIncluded}</span>
+                        </div>
+
+                        {((selectedDuration.months * 30) + (selectedDuration.days || 0)) > 0 && (
+                          <div className="absolute right-5 bottom-5 text-right z-20">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)] block leading-none mb-1">Per Player Per Day</span>
+                            <span className="text-4xl font-black" style={{ color: planColor }}>
+                              ₹{(selectedDuration.finalPrice / (((selectedDuration.months * 30) + (selectedDuration.days || 0)) * selectedDuration.playersIncluded)).toFixed(2)}
+                            </span>
+                          </div>
+                        )}
+
                         <p className="text-3xl font-black text-[var(--primary)]">
                           ₹{selectedDuration.finalPrice}
                         </p>
@@ -381,17 +395,6 @@ export default function MembershipPage() {
                         <p className="text-lg font-black text-[var(--text-muted)] line-through">
                           ₹{selectedDuration.originalPrice}
                         </p>
-
-                        <div className="mt-2 mb-3 flex flex-col gap-0.5 text-xs font-bold text-[var(--text-muted)]">
-                          <p>👥 Players Included: <span className="text-[var(--primary)] font-black">{selectedDuration.playersIncluded}</span></p>
-                          {((selectedDuration.months * 30) + (selectedDuration.days || 0)) > 0 && (
-                            <p>
-                              🏷️ Per Player Per Day: <span className="text-[var(--primary)] font-black">
-                                ₹{(selectedDuration.finalPrice / (((selectedDuration.months * 30) + (selectedDuration.days || 0)) * selectedDuration.playersIncluded)).toFixed(2)}
-                              </span>
-                            </p>
-                          )}
-                        </div>
 
                         <div className="mt-3 flex flex-wrap gap-2">
                           {plan.durations?.map((duration, index) => {

@@ -328,11 +328,7 @@ export default function ConfigurePlanPage() {
                 />
               </label>
 
-              <p className="rounded-2xl bg-[#EDEBE2] p-4 text-sm font-black text-[var(--primary)]">
-                Session allowed: {plan.game?.duration || 0} to{" "}
-                {plan.game?.maximumDuration || 0} minutes, in multiples of{" "}
-                {plan.game?.duration || 0} minutes.
-              </p>
+
 
               {plan.allowUserTimeSelection ? (
                 <div className="grid gap-4">

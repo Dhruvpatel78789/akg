@@ -47,7 +47,7 @@ export default function HomePage() {
   useEffect(() => {
     let active = true;
 
-    fetch("/api/auth/me")
+    fetch("/api/auth/me", { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!active) return;
