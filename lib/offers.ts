@@ -29,7 +29,8 @@ export async function calculateBestDiscount(
   couponIdOrCode?: string,
   userId?: string | mongoose.Types.ObjectId
 ) {
-  const bookingDate = new Date(date);
+  const [year, month, day] = date.split("-").map(Number);
+  const bookingDate = new Date(year, month - 1, day);
   const dayOfWeek = bookingDate.getDay();
   const [hours] = startTime.split(":").map(Number);
 
@@ -46,6 +47,7 @@ export async function calculateBestDiscount(
     }
     const matchesGame =
       offer.applyToAllGames ||
+      (!offer.gameId && (!offer.applicableGames || offer.applicableGames.length === 0)) ||
       (offer.applicableGames &&
         offer.applicableGames.some((g: any) => g.toString() === gameId.toString())) ||
       (offer.gameId && offer.gameId.toString() === gameId.toString());
