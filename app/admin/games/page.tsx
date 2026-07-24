@@ -116,6 +116,10 @@ export default function AdminGamesPage() {
     reason: "",
   });
 
+  const [historyCourt, setHistoryCourt] = useState<any | null>(null);
+  const [historyBlocks, setHistoryBlocks] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
   const [pricingForm, setPricingForm] = useState({
     minPlayers: 1,
     maxPlayers: 2,
@@ -568,6 +572,23 @@ function getApiErrors(data: any) {
     loadGameDetails(selectedGame._id);
   }
 
+  async function openBlockHistory(court: any) {
+    setHistoryCourt(court);
+    setLoadingHistory(true);
+    setHistoryBlocks([]);
+    try {
+      const res = await fetch(`/api/admin/courts/${court._id}/block`);
+      if (res.ok) {
+        const data = await res.json();
+        setHistoryBlocks(data.blocks || []);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }
+
   async function deleteCourt(courtId: string) {
     if (!selectedGame) return;
 
@@ -1013,7 +1034,7 @@ function getApiErrors(data: any) {
               <div className="flex items-center gap-2">
                 <Layers size={24} className="text-[#D7E528]" />
                 <h2 className="text-2xl font-black text-[var(--primary)]">
-                  Courts / Codes
+                  Courts / Table
                 </h2>
               </div>
 
@@ -1065,9 +1086,18 @@ function getApiErrors(data: any) {
                   >
                     <div>
                       <div className="flex justify-between items-start gap-2">
-                        <h3 className="text-base font-black text-[var(--primary)]">
-                          {court.name}
-                        </h3>
+                        <div className="flex flex-col">
+                          <h3 className="text-base font-black text-[var(--primary)]">
+                            {court.name}
+                          </h3>
+                          <button
+                            type="button"
+                            onClick={() => openBlockHistory(court)}
+                            className="text-[10px] font-black text-[var(--primary)] hover:underline flex items-center gap-1 mt-1 cursor-pointer bg-gray-50 px-2 py-0.5 rounded-md border w-fit"
+                          >
+                            View History
+                          </button>
+                        </div>
                         <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wider ${statusColor}`}>
                           {statusText}
                         </span>
@@ -1725,6 +1755,126 @@ function getApiErrors(data: any) {
                 </button>
               </div>
             </div>
+          </section>
+        </div>
+      )}
+
+      {historyCourt && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <section className="bg-[#FAF9F5] rounded-3xl w-full max-w-4xl p-6 shadow-2xl animate-scale-up max-h-[90vh] flex flex-col">
+            <header className="flex justify-between items-center mb-6 pb-4 border-b">
+              <div>
+                <h3 className="text-lg font-black text-[var(--primary)]">
+                  Block History - {historyCourt.name}
+                </h3>
+                <p className="text-xs text-[var(--text-muted)] font-bold mt-0.5">
+                  Full log of court blocking schedules
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHistoryCourt(null)}
+                className="h-8 w-8 rounded-full bg-white flex items-center justify-center border shadow-sm text-gray-400 hover:text-gray-650 cursor-pointer"
+              >
+                ✕
+              </button>
+            </header>
+
+            <div className="flex-1 overflow-auto pr-1">
+              {loadingHistory ? (
+                <div className="flex justify-center items-center py-20 text-sm font-bold text-[var(--text-muted)]">
+                  Loading history...
+                </div>
+              ) : historyBlocks.length === 0 ? (
+                <div className="text-center py-20 text-sm font-bold text-[var(--text-muted)] bg-white rounded-2xl border border-black/5">
+                  No block history found for this court.
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-black/5 bg-white shadow-sm">
+                  <table className="min-w-full divide-y divide-gray-200 text-left text-xs font-bold text-[var(--primary)]">
+                    <thead className="bg-gray-50 text-[10px] uppercase text-[var(--text-muted)] tracking-wider">
+                      <tr>
+                        <th className="px-4 py-3">Block Start Date</th>
+                        <th className="px-4 py-3">Start Time</th>
+                        <th className="px-4 py-3">Block End Date</th>
+                        <th className="px-4 py-3">End Time</th>
+                        <th className="px-4 py-3">Reason</th>
+                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3">Created Date & Time</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {historyBlocks.map((block: any) => {
+                        const fromDate = new Date(block.blockedFrom);
+                        const toDate = new Date(block.blockedTo);
+                        const createdDate = new Date(block.createdAt);
+
+                        const formatColDate = (d: Date) =>
+                          d.toLocaleDateString("en-IN", {
+                            timeZone: "Asia/Kolkata",
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                          });
+
+                        const formatColTime = (d: Date) =>
+                          d.toLocaleTimeString("en-IN", {
+                            timeZone: "Asia/Kolkata",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            hour12: false,
+                          });
+
+                        const formatCreated = (d: Date) =>
+                          d.toLocaleString("en-IN", {
+                            timeZone: "Asia/Kolkata",
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            hour12: false,
+                          });
+
+                        return (
+                          <tr key={block._id} className="hover:bg-gray-50">
+                            <td className="px-4 py-3.5 whitespace-nowrap">{formatColDate(fromDate)}</td>
+                            <td className="px-4 py-3.5 whitespace-nowrap text-amber-600">{formatColTime(fromDate)}</td>
+                            <td className="px-4 py-3.5 whitespace-nowrap">{formatColDate(toDate)}</td>
+                            <td className="px-4 py-3.5 whitespace-nowrap text-amber-600">{formatColTime(toDate)}</td>
+                            <td className="px-4 py-3.5 max-w-[200px] truncate">{block.reason || "-"}</td>
+                            <td className="px-4 py-3.5 whitespace-nowrap">
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${
+                                  block.status === "ACTIVE"
+                                    ? "bg-emerald-100 text-emerald-800"
+                                    : block.status === "SCHEDULED"
+                                    ? "bg-amber-100 text-amber-800"
+                                    : "bg-gray-100 text-gray-800"
+                                }`}
+                              >
+                                {block.status}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3.5 whitespace-nowrap text-gray-500 font-medium">{formatCreated(createdDate)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <footer className="mt-6 pt-4 border-t flex justify-end">
+              <button
+                type="button"
+                onClick={() => setHistoryCourt(null)}
+                className="h-11 px-6 rounded-2xl bg-white border text-sm font-black text-[var(--primary)] active:scale-95 transition-all"
+              >
+                Close
+              </button>
+            </footer>
           </section>
         </div>
       )}

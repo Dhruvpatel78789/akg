@@ -126,3 +126,22 @@ export async function POST(
     { status: 201 }
   );
 }
+
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  await connectDB();
+
+  const admin = await requireAdmin();
+  if (admin.error) return admin.error;
+
+  const { id } = await params;
+
+  // Find all blocks for this court (including past, pending, etc.)
+  const blocks = await CourtBlock.find({ courtId: id })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  return NextResponse.json({ blocks });
+}
