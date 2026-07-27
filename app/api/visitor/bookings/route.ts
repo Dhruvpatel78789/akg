@@ -25,6 +25,7 @@ async function checkAvailability(gameId: string, bookingStart: Date, bookingEnd:
     $or: [
       { paymentStatus: "PAID" },
       { paymentMethod: "PAY_AT_COUNTER" },
+      { adminCreated: true },
       { paymentStatus: "PENDING", createdAt: { $gte: tenMinutesAgo } }
     ]
   }).lean();

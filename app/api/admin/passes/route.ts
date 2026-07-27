@@ -28,6 +28,7 @@ export async function GET() {
       $or: [
         { paymentStatus: "PAID" },
         { paymentMethod: "PAY_AT_COUNTER" },
+        { adminCreated: true },
         { razorpayOrderId: { $ne: null, $exists: true } }
       ]
     })
@@ -150,6 +151,7 @@ export async function POST(request: Request) {
       adminPaymentStatus: isPaid ? "PAID" : "PENDING",
       effectivePaymentStatus: isPaid ? "PAID" : "PENDING",
       razorpayOrderId: paymentMethod === "RAZORPAY" ? "order_admin_created_" + Math.random().toString(36).substring(2, 10) : undefined,
+      adminCreated: true,
     });
 
     return NextResponse.json({ success: true, booking });

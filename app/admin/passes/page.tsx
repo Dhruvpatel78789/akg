@@ -25,6 +25,7 @@ type Booking = {
   paymentStatus: string;
   effectivePaymentStatus: string;
   razorpayOrderId?: string;
+  adminCreated?: boolean;
 };
 
 type Game = {
@@ -161,7 +162,10 @@ export default function AdminPassesPage() {
     if (booking.status === "CANCELLED") return "CANCELLED";
     if (booking.status === "COMPLETED") return "COMPLETED";
 
-    if (!isPaid) {
+    const isPayAtCounter = booking.paymentMethod === "PAY_AT_COUNTER";
+    const isAlwaysActiveOrUpcoming = isPaid || isPayAtCounter || booking.adminCreated;
+
+    if (!isAlwaysActiveOrUpcoming) {
       if (booking.paymentStatus === "FAILED") {
         return "FAILED";
       }
@@ -616,6 +620,18 @@ export default function AdminPassesPage() {
                     </span>
                     <p className="text-xs sm:text-sm text-rose-600 font-black">
                       {(b.coinCost ?? 0) > 0 || b.paymentMode === "coins" ? `${b.coinCost} Coins` : `₹${b.price}`}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[9px] sm:text-[10px] uppercase text-gray-400 font-black">Payment Status</span>
+                    <p className={`text-xs sm:text-sm font-black truncate ${b.paymentStatus === "PAID" ? "text-emerald-600" : "text-amber-600"}`}>
+                      {b.paymentStatus || "PENDING"}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[9px] sm:text-[10px] uppercase text-gray-400 font-black">Payment Method</span>
+                    <p className="text-xs sm:text-sm text-[var(--primary)] font-black truncate">
+                      {b.paymentMethod === "PAY_AT_COUNTER" ? "Pay at Counter" : (b.paymentMethod || "Razorpay")}
                     </p>
                   </div>
                 </div>

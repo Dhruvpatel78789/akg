@@ -77,6 +77,7 @@ const BookingSchema = new Schema(
     intentCreatedAt: { type: Date },
     intentExpiresAt: { type: Date },
     rescheduleRequired: { type: Boolean, default: false },
+    adminCreated: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

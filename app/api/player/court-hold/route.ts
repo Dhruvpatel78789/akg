@@ -46,6 +46,7 @@ export async function POST(request: Request) {
       $or: [
         { paymentStatus: "PAID" },
         { paymentMethod: "PAY_AT_COUNTER" },
+        { adminCreated: true },
         { paymentStatus: "PENDING", createdAt: { $gte: tenMinutesAgo } },
         { paymentStatus: "PENDING", intentExpiresAt: { $gt: new Date() } }
       ]
