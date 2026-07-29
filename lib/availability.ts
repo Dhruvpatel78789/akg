@@ -126,7 +126,6 @@ export async function checkCourtAvailability(gameId: string, bookingStart: Date,
   // Include pending bookings created within the last 10 minutes (reserved slots)
   const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
   const bookingQuery: any = {
-    gameId,
     status: { $in: ["BOOKED", "STARTED"] },
     softDeleted: false,
     startTime: { $lt: bookingEnd },
@@ -242,7 +241,6 @@ export async function checkCourtsStatus(gameId: string, bookingStart: Date, book
 
   const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
   const bookingQuery: any = {
-    gameId,
     status: { $in: ["BOOKED", "STARTED"] },
     softDeleted: false,
     startTime: { $lt: bookingEnd },
