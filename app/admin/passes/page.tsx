@@ -62,7 +62,30 @@ export default function AdminPassesPage() {
     playersCount: 1,
     paymentMethod: "PAY_AT_COUNTER",
     paymentStatus: "PENDING",
+    reserveSlot: true,
   });
+  const [selectedGameCourts, setSelectedGameCourts] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!createForm.gameId) {
+      setSelectedGameCourts([]);
+      return;
+    }
+    fetch(`/api/admin/games/${createForm.gameId}/courts`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.courts) {
+          setSelectedGameCourts(data.courts);
+          if (data.courts.length > 0) {
+            const hasCurrent = data.courts.some((c: any) => c.name === createForm.court);
+            if (!hasCurrent) {
+              setCreateForm((prev) => ({ ...prev, court: data.courts[0].name }));
+            }
+          }
+        }
+      })
+      .catch((err) => console.error("Error fetching courts:", err));
+  }, [createForm.gameId]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [validationError, setValidationError] = useState("");
@@ -312,6 +335,7 @@ export default function AdminPassesPage() {
           playersCount: 1,
           paymentMethod: "PAY_AT_COUNTER",
           paymentStatus: "PENDING",
+          reserveSlot: true,
         });
         setIsTimeChangedByUser(false);
       } else {
@@ -722,13 +746,21 @@ export default function AdminPassesPage() {
                   </label>
                   <label className="grid gap-1">
                     <span className="text-[9px] sm:text-[10px] font-black uppercase text-gray-500">Court</span>
-                    <input
-                      type="text"
-                      required
+                    <select
                       value={createForm.court}
                       onChange={(e) => setCreateForm({ ...createForm, court: e.target.value })}
-                      className="h-10 rounded-xl bg-gray-50 px-3 text-xs font-semibold border border-gray-200 outline-none focus:border-[var(--primary)]"
-                    />
+                      className="h-10 rounded-xl bg-gray-50 px-2 text-xs font-semibold border border-gray-200 outline-none cursor-pointer"
+                    >
+                      {selectedGameCourts.length === 0 ? (
+                        <option value="">No courts available</option>
+                      ) : (
+                        selectedGameCourts.map((c: any) => (
+                          <option key={c._id} value={c.name}>
+                            {c.name}
+                          </option>
+                        ))
+                      )}
+                    </select>
                   </label>
                   <label className="grid gap-1">
                     <span className="text-[9px] sm:text-[10px] font-black uppercase text-gray-500">Date</span>
@@ -805,6 +837,18 @@ export default function AdminPassesPage() {
                       <option value="PENDING">Pending</option>
                       <option value="PAID">Paid</option>
                     </select>
+                  </label>
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="reserveSlotCheckbox"
+                    checked={createForm.reserveSlot}
+                    onChange={(e) => setCreateForm({ ...createForm, reserveSlot: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300 text-[var(--primary)] focus:ring-[var(--primary)] cursor-pointer"
+                  />
+                  <label htmlFor="reserveSlotCheckbox" className="text-xs font-bold text-gray-700 cursor-pointer select-none">
+                    Reserve slot (lock this court and time so others cannot book it)
                   </label>
                 </div>
               </div>

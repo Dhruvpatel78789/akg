@@ -66,6 +66,7 @@ export async function POST(request: Request) {
       playersCount,
       paymentMethod, // "PAY_AT_COUNTER" | "RAZORPAY"
       paymentStatus,  // "PAID" | "PENDING"
+      reserveSlot,
     } = body;
 
     if (!name || !phone || !gameId || !date || !startTime || !durationMinutes) {
@@ -151,7 +152,7 @@ export async function POST(request: Request) {
       adminPaymentStatus: isPaid ? "PAID" : "PENDING",
       effectivePaymentStatus: isPaid ? "PAID" : "PENDING",
       razorpayOrderId: paymentMethod === "RAZORPAY" ? "order_admin_created_" + Math.random().toString(36).substring(2, 10) : undefined,
-      adminCreated: true,
+      adminCreated: reserveSlot !== undefined ? Boolean(reserveSlot) : true,
     });
 
     return NextResponse.json({ success: true, booking });
