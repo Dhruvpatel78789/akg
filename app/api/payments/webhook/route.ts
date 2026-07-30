@@ -58,7 +58,10 @@ export async function POST(request: Request) {
             const booking = await Booking.findById(bookingId);
             if (booking && booking.paymentStatus !== "PAID") {
               booking.paymentStatus = "PAID";
+              booking.gatewayPaymentStatus = "PAID";
               booking.status = "BOOKED";
+              booking.razorpayOrderId = orderId;
+              booking.razorpayPaymentId = paymentId;
               booking.transactionId = paymentId;
               booking.paidAt = new Date();
               await booking.save();
@@ -129,6 +132,60 @@ export async function POST(request: Request) {
         order.status = "FAILED";
         order.razorpayPaymentId = paymentId;
         await order.save();
+      }
+    } else {
+      // Fallback: update Booking directly by searching for the razorpayOrderId!
+      if (isPaidEvent) {
+        const { Booking } = await import("@/models/Booking");
+        const { Transaction } = await import("@/models/Transaction");
+        const booking = await Booking.findOne({ razorpayOrderId: orderId });
+        if (booking && booking.paymentStatus !== "PAID") {
+           booking.paymentStatus = "PAID";
+           booking.gatewayPaymentStatus = "PAID";
+           booking.status = "BOOKED";
+           booking.razorpayOrderId = orderId;
+           booking.razorpayPaymentId = paymentId;
+           booking.transactionId = paymentId;
+           booking.paidAt = new Date();
+           await booking.save();
+
+          // Confirm associated court holds
+          try {
+            const { CourtHold } = await import("@/models/CourtHold");
+            const { Court } = await import("@/models/court");
+            if (booking.court) {
+              const courtDoc = await Court.findOne({ name: { $regex: new RegExp(`^\\s*${booking.court.trim()}\\s*$`, "i") } });
+              if (courtDoc) {
+                await CourtHold.updateMany(
+                  {
+                    courtId: courtDoc._id,
+                    startTime: booking.startTime,
+                    endTime: booking.endTime,
+                    status: "HELD"
+                  },
+                  { $set: { status: "CONFIRMED" } }
+                );
+              }
+            }
+          } catch (holdErr) {
+            console.error("Failed to confirm court hold in webhook fallback:", holdErr);
+          }
+
+          // Create transaction record
+          try {
+            await Transaction.create({
+              userId: booking.userId,
+              type: "SESSION_DEDUCTION",
+              amount: booking.price || 0,
+              coins: 0,
+              note: `Online payment booking for ${booking.gameName} on court ${booking.court || "N/A"}`,
+              paymentMode: "online",
+              paymentStatus: "PAID",
+            });
+          } catch (txErr) {
+            console.error("Failed to create transaction in webhook fallback:", txErr);
+          }
+        }
       }
     }
 

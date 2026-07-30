@@ -74,7 +74,10 @@ export async function POST(req: NextRequest) {
       if (booking && booking.paymentStatus !== "PAID") {
         const { Transaction } = await import("@/models/Transaction");
         booking.paymentStatus = "PAID";
+        booking.gatewayPaymentStatus = "PAID";
         booking.status = "BOOKED";
+        booking.razorpayOrderId = razorpayOrderId;
+        booking.razorpayPaymentId = razorpayPaymentId;
         booking.transactionId = razorpayPaymentId;
         booking.paidAt = new Date();
         await booking.save();

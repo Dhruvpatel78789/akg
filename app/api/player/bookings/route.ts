@@ -556,8 +556,17 @@ export async function POST(request: Request) {
       existingBooking.subtotal = bookingCost;
       existingBooking.price = expectedPrice;
       existingBooking.paymentStatus = "PAID";
+      existingBooking.gatewayPaymentStatus = "PAID";
       existingBooking.status = "BOOKED";
       existingBooking.appliedPromotions = appliedPromotions as any;
+      if (razorpayOrderId) {
+        existingBooking.razorpayOrderId = razorpayOrderId;
+        const pOrder = await PaymentOrder.findOne({ razorpayOrderId });
+        if (pOrder && pOrder.razorpayPaymentId) {
+          existingBooking.razorpayPaymentId = pOrder.razorpayPaymentId;
+          existingBooking.transactionId = pOrder.razorpayPaymentId;
+        }
+      }
 
       await existingBooking.save();
 
@@ -651,6 +660,7 @@ export async function POST(request: Request) {
     // Otherwise, booking using coins/payment
     if (paymentSuccess) {
       // Create paid booking (user paid cash/card for this booking)
+      const pOrder = razorpayOrderId ? await PaymentOrder.findOne({ razorpayOrderId }) : null;
       const booking = await Booking.create({
         userId: user._id,
         gameId,
@@ -668,6 +678,10 @@ export async function POST(request: Request) {
         playerType: user.role === "VISITOR" ? "VISITOR" : "MEMBER",
         paymentMode: "online",
         paymentStatus: "PAID",
+        gatewayPaymentStatus: "PAID",
+        razorpayOrderId: razorpayOrderId || undefined,
+        razorpayPaymentId: pOrder?.razorpayPaymentId || undefined,
+        transactionId: pOrder?.razorpayPaymentId || undefined,
       });
 
       await Transaction.create({

@@ -47,6 +47,7 @@ type Booking = {
   adminOverrideAt?: string;
   autoEnded?: boolean;
   paymentMethod?: string;
+  createdAt?: string;
 };
 
 type BookingRequest = {
@@ -211,6 +212,8 @@ export default function AdminBookingsPage() {
     end: true,
     exitTime: true,
     status: true,
+    orderId: true,
+    createdAt: true,
     payment: true,
     actions: true,
   });
@@ -708,7 +711,9 @@ export default function AdminBookingsPage() {
                     ) : (
                       <Square size={16} className="text-gray-300" />
                     )}
-                    <span className="capitalize">{col.replace(/([A-Z])/g, " $1")}</span>
+                    <span className="capitalize">
+                      {col === "orderId" ? "Order ID" : col.replace(/([A-Z])/g, " $1")}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -741,6 +746,8 @@ export default function AdminBookingsPage() {
                   {visibleColumns.end && <th>End</th>}
                   {visibleColumns.exitTime && <th>Exit Time</th>}
                   {visibleColumns.status && <th>Status</th>}
+                  {visibleColumns.orderId && <th>Order ID</th>}
+                  {visibleColumns.createdAt && <th>Created At</th>}
                   {visibleColumns.payment && <th>Payment Details</th>}
                   {visibleColumns.actions && <th>Actions</th>}
                 </tr>
@@ -794,6 +801,8 @@ export default function AdminBookingsPage() {
                         })()}
                       </td>
                     )}
+                    {visibleColumns.orderId && <td className="font-mono text-xs">{booking.razorpayOrderId || "-"}</td>}
+                    {visibleColumns.createdAt && <td>{formatDateTime(booking.createdAt)}</td>}
                     {visibleColumns.payment && (
                       <td className="text-xs">
                         {booking.coinCost && booking.coinCost > 0 ? (

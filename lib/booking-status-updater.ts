@@ -8,6 +8,100 @@ export async function updateBookingStatuses() {
   const now = new Date();
 
   // ----------------------------------------------------
+  // 0. Auto-Reconcile stuck Razorpay Payments
+  // ----------------------------------------------------
+  try {
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (keyId && keySecret && !keyId.startsWith("rzp_test_mock")) {
+      const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+      const stuckBookings = await Booking.find({
+        paymentStatus: "PENDING",
+        paymentMethod: "RAZORPAY",
+        razorpayOrderId: { $regex: /^order_/ },
+        createdAt: { $gte: twoDaysAgo }
+      });
+
+      if (stuckBookings.length > 0) {
+        const { default: Razorpay } = await import("razorpay");
+        const razorpay = new Razorpay({
+          key_id: keyId,
+          key_secret: keySecret
+        });
+
+        for (const booking of stuckBookings) {
+          try {
+            const orderId = booking.razorpayOrderId;
+            if (!orderId || orderId.startsWith("order_mock_")) continue;
+
+            const orderDetails = await razorpay.orders.fetch(orderId);
+            if (orderDetails && orderDetails.status === "paid") {
+              // Retrieve payments for this order to find the actual payment ID
+              const payments = await razorpay.orders.fetchPayments(orderId);
+              const capturedPayment = payments.items?.find((p: any) => p.status === "captured");
+              const paymentId = capturedPayment?.id || `pay_reconciled_${orderId.substring(6)}`;
+
+              booking.paymentStatus = "PAID";
+              booking.gatewayPaymentStatus = "PAID";
+              booking.status = "BOOKED";
+              booking.razorpayPaymentId = paymentId;
+              booking.transactionId = paymentId;
+              booking.paidAt = new Date();
+              await booking.save();
+
+              // Confirm associated court holds
+              try {
+                const { CourtHold } = await import("@/models/CourtHold");
+                const { Court } = await import("@/models/court");
+                if (booking.court) {
+                  const courtDoc = await Court.findOne({ name: { $regex: new RegExp(`^\\s*${booking.court.trim()}\\s*$`, "i") } });
+                  if (courtDoc) {
+                    await CourtHold.updateMany(
+                      {
+                        courtId: courtDoc._id,
+                        startTime: booking.startTime,
+                        endTime: booking.endTime,
+                        status: "HELD"
+                      },
+                      { $set: { status: "CONFIRMED" } }
+                    );
+                  }
+                }
+              } catch (holdErr) {
+                console.error("Failed to confirm court hold in auto-reconcile:", holdErr);
+              }
+
+              // Create transaction record
+              try {
+                const { Transaction } = await import("@/models/Transaction");
+                const existingTx = await Transaction.findOne({ note: { $regex: new RegExp(booking._id.toString()) } });
+                if (!existingTx) {
+                  await Transaction.create({
+                    userId: booking.userId,
+                    type: "SESSION_DEDUCTION",
+                    amount: booking.price || 0,
+                    coins: 0,
+                    note: `Auto-reconciled online payment booking for ${booking.gameName} on court ${booking.court || "N/A"} (Booking ID: ${booking._id})`,
+                    paymentMode: "online",
+                    paymentStatus: "PAID",
+                  });
+                }
+              } catch (txErr) {
+                console.error("Failed to create transaction in auto-reconcile:", txErr);
+              }
+            }
+          } catch (itemErr) {
+            console.error(`Failed to reconcile booking ${booking._id}:`, itemErr);
+          }
+        }
+      }
+    }
+  } catch (reconErr) {
+    console.error("Error running Razorpay auto-reconciliation: ", reconErr);
+  }
+
+  // ----------------------------------------------------
   // 1. Corporate / Visitor SessionEntry Auto-Start
   // ----------------------------------------------------
   const entriesToStart = await SessionEntry.find({
