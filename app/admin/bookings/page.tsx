@@ -230,6 +230,29 @@ export default function AdminBookingsPage() {
       .catch(err => console.error(err));
   }, []);
 
+  const [editingGameCourts, setEditingGameCourts] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!editingBooking) {
+      setEditingGameCourts([]);
+      return;
+    }
+    const gId = typeof editingBooking.gameId === "object" && editingBooking.gameId !== null
+      ? (editingBooking.gameId as any)._id
+      : editingBooking.gameId;
+
+    if (!gId) return;
+
+    fetch(`/api/admin/games/${gId}/courts`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.courts) {
+          setEditingGameCourts(data.courts);
+        }
+      })
+      .catch((err) => console.error("Error fetching editing game courts:", err));
+  }, [editingBooking]);
+
   const selectedBookingGame = useMemo(() => {
     if (!editingBooking || !games.length) return null;
     const gId = typeof editingBooking.gameId === "object" && editingBooking.gameId !== null
@@ -996,14 +1019,21 @@ export default function AdminBookingsPage() {
 
               <label className="grid gap-1">
                 <span className="text-[10px] font-black uppercase text-gray-400">Court Selection</span>
-                <input
-                  type="text"
-                  required
-                  placeholder="Court A, Court B, etc."
+                <select
                   value={editForm.court}
                   onChange={(e) => setEditForm({ ...editForm, court: e.target.value })}
-                  className="h-12 border border-gray-200 rounded-xl px-4 text-sm font-bold outline-none"
-                />
+                  className="h-12 border border-gray-200 rounded-xl px-4 text-sm font-bold outline-none cursor-pointer"
+                >
+                  {editingGameCourts.length === 0 ? (
+                    <option value="">No courts configured</option>
+                  ) : (
+                    editingGameCourts.map((c: any) => (
+                      <option key={c._id} value={c.name}>
+                        {c.name}
+                      </option>
+                    ))
+                  )}
+                </select>
               </label>
 
               <button

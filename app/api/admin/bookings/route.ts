@@ -198,10 +198,31 @@ export async function PATCH(request: Request) {
           }
         }
 
+        const oldStartTime = booking.startTime;
+        const oldCourt = booking.court;
+
         if (startTime) booking.startTime = new Date(startTime);
         if (endTime) booking.endTime = new Date(endTime);
         if (court) booking.court = court;
         await booking.save();
+
+        // Release old court holds to free the previous court immediately
+        try {
+          const { Court } = await import("@/models/court");
+          const { CourtHold } = await import("@/models/CourtHold");
+          if (oldCourt) {
+            const oldCourtDoc = await Court.findOne({ name: { $regex: new RegExp(`^\\s*${oldCourt.trim()}\\s*$`, "i") } });
+            if (oldCourtDoc) {
+              await CourtHold.deleteMany({
+                courtId: oldCourtDoc._id,
+                startTime: oldStartTime,
+                userId: booking.userId
+              });
+            }
+          }
+        } catch (holdErr) {
+          console.error("Failed to clean up old court holds in admin update:", holdErr);
+        }
 
         // Create notification for player
         await Notification.create({
