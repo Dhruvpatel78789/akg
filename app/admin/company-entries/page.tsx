@@ -305,7 +305,7 @@ export default function AdminCompanyEntriesPage() {
 
     const elements: React.ReactNode[] = [];
 
-    // Render grouped entries
+    // Render grouped entries (merging multiple parent + overtime slots per player)
     for (const [gid, groupEntries] of Object.entries(groups)) {
       const first = groupEntries[0];
       elements.push(
@@ -315,8 +315,45 @@ export default function AdminCompanyEntriesPage() {
           </td>
         </tr>
       );
+
+      // Group by player key: companyEmployeeId or playerName_mobile
+      const playerEntriesMap = new Map<string, SessionEntry[]>();
       for (const entry of groupEntries) {
-        elements.push(renderRow(entry, true));
+        const pKey = `${entry.playerName}_${entry.mobile}`;
+        if (!playerEntriesMap.has(pKey)) {
+          playerEntriesMap.set(pKey, []);
+        }
+        playerEntriesMap.get(pKey)!.push(entry);
+      }
+
+      // Render exactly one merged row per player
+      for (const pEntries of playerEntriesMap.values()) {
+        let earliestStart = new Date(pEntries[0].startTime);
+        let latestEnd = new Date(pEntries[0].endTime);
+        let totalDuration = 0;
+        let mergedStatus = pEntries[0].status;
+        let isSoftDeleted = pEntries[0].softDeleted;
+
+        for (const pe of pEntries) {
+          const s = new Date(pe.startTime);
+          const e = new Date(pe.endTime);
+          if (s < earliestStart) earliestStart = s;
+          if (e > latestEnd) latestEnd = e;
+          totalDuration += pe.bookedDurationMinutes || 0;
+          if (pe.status === "STARTED") mergedStatus = "STARTED";
+          if (pe.softDeleted) isSoftDeleted = true;
+        }
+
+        const mergedEntry: SessionEntry = {
+          ...pEntries[0],
+          startTime: earliestStart.toISOString(),
+          endTime: latestEnd.toISOString(),
+          bookedDurationMinutes: totalDuration,
+          status: mergedStatus,
+          softDeleted: isSoftDeleted,
+        };
+
+        elements.push(renderRow(mergedEntry, true));
       }
     }
 

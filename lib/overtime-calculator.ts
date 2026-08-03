@@ -12,6 +12,9 @@ export async function processOvertimeAndExit(
 ) {
   const booking = await Booking.findById(bookingId);
   if (!booking) return { success: false, reason: "Booking not found" };
+  if (booking.status === "COMPLETED") {
+    return { success: true, message: "Booking already completed" };
+  }
 
   const game = await Game.findById(booking.gameId).lean();
   if (!game) return { success: false, reason: "Game not found" };
@@ -48,9 +51,10 @@ export async function processOvertimeAndExit(
 
   // Handle company overtime entries vs non-company AdditionalCharge
   if (booking.playerType === "COMPANY") {
-    // 1. Fetch related session entries for the company booking group
+    // 1. Fetch related session entries for the company booking group (excluding overtime child entries)
     const relatedEntries = await SessionEntry.find({
       bookingId: booking._id,
+      entryType: { $ne: "OVERTIME" },
       softDeleted: false,
     });
 

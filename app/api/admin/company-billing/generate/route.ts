@@ -40,6 +40,7 @@ export async function POST(request: Request) {
       companyId,
       startTime: { $gte: start, $lte: end },
       status: { $in: ["COMPLETED", "STARTED", "BOOKED"] },
+      entryType: { $ne: "OVERTIME" },
       softDeleted: false,
     }).lean();
 

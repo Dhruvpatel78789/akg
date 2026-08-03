@@ -58,9 +58,11 @@ async function populateGroupPlayers(sessionEntries: any[]) {
     if (gid && groupMap.has(gid)) {
       const players = groupMap.get(gid) || [];
       entry.groupPlayers = players;
-      entry.otherPlayers = players
-        .filter(p => p.companyEmployeeId !== entry.companyEmployeeId?.toString())
-        .map(p => p.playerName);
+      const otherNames = players
+        .filter(p => p.companyEmployeeId !== entry.companyEmployeeId?.toString() && p.companyEmployeeId !== entry.companyEmployeeId?._id?.toString())
+        .map(p => p.playerName)
+        .filter((name): name is string => !!name);
+      entry.otherPlayers = Array.from(new Set(otherNames));
     } else {
       entry.groupPlayers = [];
       entry.otherPlayers = [];

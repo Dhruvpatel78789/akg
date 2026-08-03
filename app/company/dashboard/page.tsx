@@ -410,7 +410,7 @@ export default function CompanyDashboardPage() {
                         });
                     }
                   }}
-                  className="mx-auto h-12 px-6 bg-red-650 hover:bg-red-700 text-white rounded-full font-black text-xs transition flex items-center justify-center gap-2 active:scale-95 shadow-sm"
+                  className="mx-auto h-12 px-6 bg-red-600 hover:bg-red-700 text-white rounded-full font-black text-xs transition flex items-center justify-center gap-2 active:scale-95 shadow-sm"
                 >
                   <span>📷 Scan QR To End Session</span>
                 </button>
