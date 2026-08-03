@@ -766,8 +766,7 @@ export async function POST(request: Request) {
     if (bookingCost > maxCoinsAllowed) {
       // Calculate how many coins can be used
       const coinsToUse = Math.max(0, maxCoinsAllowed);
-      const remainingCashToPay = bookingCost - coinsToUse;
-
+      const remainingCashToPay = Math.max(0, expectedPrice - coinsToUse);
       const pendingBooking = await createPendingBooking(coinsToUse, remainingCashToPay);
 
       let reason = "insufficient_coins";

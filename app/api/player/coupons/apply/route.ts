@@ -52,7 +52,24 @@ export async function POST(req: NextRequest) {
     // User Type check
     if (authUser) {
       const user = await User.findById(authUser.userId).lean();
-      const userRole = user?.role || "MEMBER"; // default to MEMBER
+      if (!user) {
+        return NextResponse.json({ success: false, valid: false, message: "User not found" }, { status: 404 });
+      }
+      let userRole: string = user.role || "VISITOR";
+      
+      if (userRole === "PLAYER") {
+        const { Membership } = await import("@/models/Membership");
+        const hasBoughtMembership = await Membership.exists({ userId: user._id });
+
+        const isAdminCreated = user.accountSource === "ADMIN_CREATED" || user.accountSource === "ADMIN_CONVERTED_VISITOR";
+
+        if (hasBoughtMembership || isAdminCreated || user.activePlanId) {
+          userRole = "MEMBER";
+        } else {
+          userRole = "PLAYER";
+        }
+      }
+
       if (coupon.applicableUserTypes && coupon.applicableUserTypes.length > 0) {
         const isUserTypeApplicable = coupon.applicableUserTypes.some((role: string) => role.toUpperCase() === userRole.toUpperCase());
         if (!isUserTypeApplicable) {
@@ -72,7 +89,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Applicable on membership plan check
-    if (isMembershipPurchase && !coupon.applicableOnMembership) {
+    if (isMembershipPurchase && (!coupon.applicableOnMembership || coupon.hidden)) {
       return NextResponse.json({ success: false, valid: false, message: "This coupon is only valid for game bookings, not membership recharges." }, { status: 400 });
     }
 
@@ -144,7 +161,13 @@ export async function POST(req: NextRequest) {
       discount = resDiscount.totalDiscount;
       appliedPromotions = resDiscount.appliedPromotions;
     }
-
+    if (appliedPromotions.length === 0 && discount > 0) {
+      appliedPromotions.push({
+        name: coupon.code,
+        discountAmount: discount,
+        type: "COUPON",
+      });
+    }
     const payableAmount = Math.max(0, billAmount - discount);
 
     return NextResponse.json({

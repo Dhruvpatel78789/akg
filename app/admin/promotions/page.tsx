@@ -1223,7 +1223,7 @@ export default function AdminPromotionsPage() {
             <div className="grid gap-1">
               <span className="text-[10px] font-black uppercase text-gray-400">Applicable User Types (None = All Users)</span>
               <div className="flex gap-4 border rounded-xl p-3 bg-gray-50">
-                {["MEMBER", "VISITOR", "COMPANY"].map((role) => (
+                {["MEMBER", "PLAYER", "VISITOR", "COMPANY"].map((role) => (
                   <label key={role} className="flex items-center gap-2 cursor-pointer select-none">
                     <input
                       type="checkbox"

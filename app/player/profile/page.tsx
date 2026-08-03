@@ -75,7 +75,10 @@ function PlayerProfileForm() {
         setPhoneInput(data.user.phone || "");
         setEmailInput(data.user.email || "");
         if (data.user.dob) {
-          setDobInput(new Date(data.user.dob).toISOString().split("T")[0]);
+          const d = new Date(data.user.dob);
+          if (!isNaN(d.getTime())) {
+            setDobInput(d.toISOString().split("T")[0]);
+          }
         }
       } else {
         router.replace("/auth/login?redirect=/player/profile");
@@ -196,6 +199,7 @@ function PlayerProfileForm() {
   function formatDob(dobString?: string) {
     if (!dobString) return "";
     const date = new Date(dobString);
+    if (isNaN(date.getTime())) return "";
     const day = String(date.getDate()).padStart(2, "0");
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const year = date.getFullYear();

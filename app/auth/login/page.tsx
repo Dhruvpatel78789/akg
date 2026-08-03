@@ -58,6 +58,8 @@ function LoginForm() {
 
       if (data?.user?.role === "ADMIN" || data?.user?.hasRoleProfile) {
         router.replace("/admin/dashboard");
+      } else if (data?.user?.role === "COMPANY_EMPLOYEE") {
+        router.replace("/company/dashboard");
       } else {
         router.replace("/player/dashboard");
       }

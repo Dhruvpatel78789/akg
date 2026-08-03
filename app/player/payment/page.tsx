@@ -263,7 +263,7 @@ function UnifiedPaymentForm() {
   }, [promotionsToDisplay]);
 
   const finalAmountToPay = useMemo(() => {
-    if (type === "plan") return subtotalAmount;
+    if (type === "plan") return Math.max(0, subtotalAmount - totalDiscount);
     if (type === "booking" && bookingDetails) {
       if (serverAppliedPromotions) {
         return Math.max(0, subtotalAmount - totalDiscount);

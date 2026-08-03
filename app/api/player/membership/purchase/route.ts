@@ -155,7 +155,7 @@ export async function POST(request: Request) {
       if (coupon.expiryDate && new Date(coupon.expiryDate) < new Date()) {
         return NextResponse.json({ message: "Coupon has expired." }, { status: 400 });
       }
-      if (!coupon.applicableOnMembership) {
+      if (!coupon.applicableOnMembership || coupon.hidden) {
         return NextResponse.json({ message: "This coupon is not valid for membership plan recharges." }, { status: 400 });
       }
       const minVal = coupon.minimumOrderValue ?? coupon.minBookingAmount ?? 0;

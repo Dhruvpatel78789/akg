@@ -35,9 +35,14 @@ export async function POST(req: NextRequest) {
       }
 
       // Game check
-      if (offer.gameId && gameId) {
-        if (offer.gameId.toString() !== gameId) continue;
-      }
+      const matchesGame =
+        offer.applyToAllGames ||
+        (!offer.gameId && (!offer.applicableGames || offer.applicableGames.length === 0)) ||
+        (offer.applicableGames &&
+          offer.applicableGames.some((g: any) => g.toString() === gameId.toString())) ||
+        (offer.gameId && offer.gameId.toString() === gameId.toString());
+
+      if (!matchesGame) continue;
 
       // Calculate discount
       let discount = 0;
