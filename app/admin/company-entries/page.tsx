@@ -348,7 +348,7 @@ export default function AdminCompanyEntriesPage() {
           ...pEntries[0],
           startTime: earliestStart.toISOString(),
           endTime: latestEnd.toISOString(),
-          bookedDurationMinutes: totalDuration,
+          bookedDurationMinutes: Math.round((latestEnd.getTime() - earliestStart.getTime()) / 60000),
           status: mergedStatus,
           softDeleted: isSoftDeleted,
         };
