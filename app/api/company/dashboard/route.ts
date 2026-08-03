@@ -132,10 +132,11 @@ export async function GET() {
     .sort({ startTime: 1 })
     .lean();
 
-  // Play history
+  // Play history (excluding overtime entries as their metadata is consolidated in the parent entry)
   const playHistory = await SessionEntry.find({
     companyEmployeeId: employee._id,
     status: { $in: ["COMPLETED", "CANCELLED"] },
+    entryType: { $ne: "OVERTIME" },
     softDeleted: false,
   })
     .sort({ exitedTime: -1, createdAt: -1 })

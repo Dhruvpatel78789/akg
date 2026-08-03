@@ -22,24 +22,50 @@ export async function PUT(
       return NextResponse.json({ message: "Session entry not found" }, { status: 404 });
     }
 
-    if (startTime) entry.startTime = new Date(startTime);
-    if (endTime) entry.endTime = new Date(endTime);
-    if (court) entry.court = court;
-    if (status) entry.status = status;
-    if (softDeleted !== undefined) entry.softDeleted = softDeleted;
+    const parseIstDate = (dateStr: string) => {
+      if (!dateStr) return null;
+      if (dateStr.includes("+") || dateStr.endsWith("Z")) {
+        return new Date(dateStr);
+      }
+      return new Date(`${dateStr}+05:30`);
+    };
 
-    // If times are updated, recalculate booked duration minutes
-    if (startTime || endTime) {
-      const start = new Date(entry.startTime);
-      const end = new Date(entry.endTime);
+    const updateData: any = {};
+    if (startTime) {
+      const parsedStart = parseIstDate(startTime);
+      if (parsedStart) updateData.startTime = parsedStart;
+    }
+    if (endTime) {
+      const parsedEnd = parseIstDate(endTime);
+      if (parsedEnd) updateData.endTime = parsedEnd;
+    }
+    if (court) updateData.court = court;
+    if (status) updateData.status = status;
+    if (softDeleted !== undefined) updateData.softDeleted = softDeleted;
+
+    // Recalculate booked duration minutes if times changed
+    const targetStart = updateData.startTime || entry.startTime;
+    const targetEnd = updateData.endTime || entry.endTime;
+    if (targetStart && targetEnd) {
+      const start = new Date(targetStart);
+      const end = new Date(targetEnd);
       if (end > start) {
-        entry.bookedDurationMinutes = Math.round((end.getTime() - start.getTime()) / (60 * 1000));
+        updateData.bookedDurationMinutes = Math.round((end.getTime() - start.getTime()) / (60 * 1000));
       }
     }
 
-    await entry.save();
-
-    return NextResponse.json({ success: true, entry });
+    if (entry.bookingGroupId) {
+      await SessionEntry.updateMany(
+        { bookingGroupId: entry.bookingGroupId },
+        { $set: updateData }
+      );
+      const updatedEntry = await SessionEntry.findById(id);
+      return NextResponse.json({ success: true, entry: updatedEntry });
+    } else {
+      Object.assign(entry, updateData);
+      await entry.save();
+      return NextResponse.json({ success: true, entry });
+    }
   } catch (err: any) {
     console.error("PUT session entry admin error:", err);
     return NextResponse.json(

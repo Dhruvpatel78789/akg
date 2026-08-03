@@ -484,9 +484,11 @@ export default function AdminCompanyEntriesPage() {
     // Format dates to datetime-local inputs: YYYY-MM-DDTHH:MM
     const formatToLocal = (dStr: string) => {
       const d = new Date(dStr);
-      const tzOffset = d.getTimezoneOffset() * 60000; // offset in milliseconds
-      const localISOTime = new Date(d.getTime() - tzOffset).toISOString().slice(0, 16);
-      return localISOTime;
+      if (isNaN(d.getTime())) return "";
+      // IST offset is +05:30 (5.5 hours) from UTC.
+      // Offset addition in milliseconds: 5.5 * 60 * 60 * 1000 = 19800000
+      const istTime = new Date(d.getTime() + 19800000);
+      return istTime.toISOString().slice(0, 16);
     };
 
     setEditForm({
