@@ -183,6 +183,14 @@ export default function HomePage() {
               {menuOpen && (
                 <div className="absolute right-0 top-18 z-50 w-52 rounded-2xl bg-white p-3 shadow-lg ring-1 ring-black/5">
                   <nav className="grid gap-1">
+                    <a
+                      href="/corporate_player_guide.pdf"
+                      download="Corporate_Player_Guide.pdf"
+                      onClick={() => setMenuOpen(false)}
+                      className="block rounded-xl px-4 py-2.5 text-sm font-black text-indigo-650 hover:bg-gray-50"
+                    >
+                      📄 Download Guide (PDF)
+                    </a>
                     {user ? (
                       <>
                         <Link
