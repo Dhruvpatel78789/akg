@@ -9,12 +9,19 @@ import { updateBookingStatuses } from "@/lib/booking-status-updater";
 import { Notification } from "@/models/Notification";
 import { Game } from "@/models/Game";
 
-export async function GET() {
+import { formatToISTDate } from "@/lib/time";
+
+export async function GET(request: Request) {
   try {
     await connectDB();
 
     const admin = await requireAdmin();
     if (admin.error) return admin.error;
+
+    const { searchParams } = new URL(request.url);
+    const range = searchParams.get("range") || "24h";
+    const startDateStr = searchParams.get("startDate");
+    const endDateStr = searchParams.get("endDate");
 
     const isGlobalAdmin = admin.user?.role === "ADMIN";
     const roleProfile = admin.roleProfile;
@@ -50,16 +57,117 @@ export async function GET() {
 
     const now = new Date();
 
+    // Date Range Calculations (using local/IST boundary conversions)
+    let rangeStart: Date | null = null;
+    let rangeEnd: Date | null = null;
+
+    if (range === "24h") {
+      rangeStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      rangeEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    } else if (range === "today") {
+      const todayStr = formatToISTDate(now);
+      rangeStart = new Date(todayStr + "T00:00:00+05:30");
+      rangeEnd = new Date(todayStr + "T23:59:59+05:30");
+    } else if (range === "yesterday") {
+      const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const yesterdayStr = formatToISTDate(yesterday);
+      rangeStart = new Date(yesterdayStr + "T00:00:00+05:30");
+      rangeEnd = new Date(yesterdayStr + "T23:59:59+05:30");
+    } else if (range === "thisWeek") {
+      const day = now.getDay();
+      const diffToMon = now.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(now.getTime());
+      monday.setDate(diffToMon);
+      const mondayStr = formatToISTDate(monday);
+      
+      const sunday = new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000);
+      const sundayStr = formatToISTDate(sunday);
+      
+      rangeStart = new Date(mondayStr + "T00:00:00+05:30");
+      rangeEnd = new Date(sundayStr + "T23:59:59+05:30");
+    } else if (range === "previousWeek") {
+      const day = now.getDay();
+      const diffToLastMon = now.getDate() - day + (day === 0 ? -6 : 1) - 7;
+      const lastMonday = new Date(now.getTime());
+      lastMonday.setDate(diffToLastMon);
+      const lastMondayStr = formatToISTDate(lastMonday);
+      
+      const lastSunday = new Date(lastMonday.getTime() + 6 * 24 * 60 * 60 * 1000);
+      const lastSundayStr = formatToISTDate(lastSunday);
+      
+      rangeStart = new Date(lastMondayStr + "T00:00:00+05:30");
+      rangeEnd = new Date(lastSundayStr + "T23:59:59+05:30");
+    } else if (range === "thisMonth") {
+      const year = now.getFullYear();
+      const month = now.getMonth();
+      const firstDay = new Date(year, month, 1);
+      const lastDay = new Date(year, month + 1, 0);
+      
+      const firstDayStr = formatToISTDate(firstDay);
+      const lastDayStr = formatToISTDate(lastDay);
+      
+      rangeStart = new Date(firstDayStr + "T00:00:00+05:30");
+      rangeEnd = new Date(lastDayStr + "T23:59:59+05:30");
+    } else if (range === "custom" && startDateStr && endDateStr) {
+      rangeStart = new Date(startDateStr + "T00:00:00+05:30");
+      rangeEnd = new Date(endDateStr + "T23:59:59+05:30");
+    }
+
+    // Build conditional queries
+    const advQuery: any = {
+      status: "BOOKED",
+      startTime: { $gt: now },
+      $or: [
+        { paymentStatus: "PAID" },
+        { paymentMethod: "PAY_AT_COUNTER" }
+      ],
+      softDeleted: false,
+    };
+    if (range !== "all" && rangeEnd) {
+      advQuery.startTime = { $gt: now, $lte: rangeEnd };
+    }
+
+    const histQuery: any = {
+      status: { $in: ["COMPLETED", "CANCELLED"] },
+      paymentStatus: "PAID",
+      softDeleted: false,
+    };
+    if (range !== "all" && rangeStart && rangeEnd) {
+      histQuery.startTime = { $gte: rangeStart, $lte: rangeEnd };
+    }
+
+    const pendingQuery: any = {
+      paymentStatus: "PENDING",
+      softDeleted: false,
+    };
+    if (range !== "all" && rangeStart && rangeEnd) {
+      pendingQuery.createdAt = { $gte: rangeStart, $lte: rangeEnd };
+    }
+
+    const failedQuery: any = {
+      paymentStatus: "FAILED",
+      softDeleted: false,
+    };
+    if (range !== "all" && rangeStart && rangeEnd) {
+      failedQuery.createdAt = { $gte: rangeStart, $lte: rangeEnd };
+    }
+
+    const cancelQuery: any = {
+      type: "CANCELLATION",
+    };
+    if (range !== "all" && rangeStart && rangeEnd) {
+      cancelQuery.createdAt = { $gte: rangeStart, $lte: rangeEnd };
+    }
+
+    const timeChangeQuery: any = {
+      type: "TIME_CHANGE",
+    };
+    if (range !== "all" && rangeStart && rangeEnd) {
+      timeChangeQuery.createdAt = { $gte: rangeStart, $lte: rangeEnd };
+    }
+
     const advancedBookings = getSubPermission("advancedBookings").view
-      ? await Booking.find({
-          status: "BOOKED",
-          startTime: { $gt: now },
-          $or: [
-            { paymentStatus: "PAID" },
-            { paymentMethod: "PAY_AT_COUNTER" }
-          ],
-          softDeleted: false,
-        })
+      ? await Booking.find(advQuery)
           .populate("userId", "name phone email role")
           .populate("companyId", "name")
           .populate("companyEmployeeId", "name mobile email employeeId")
@@ -67,6 +175,7 @@ export async function GET() {
           .lean()
       : [];
 
+    // Ongoing sessions are critical to always view in real-time on active courts
     const ongoingSessions = getSubPermission("ongoingSessions").view
       ? await Booking.find({
           status: "STARTED",
@@ -81,11 +190,7 @@ export async function GET() {
       : [];
 
     const bookingHistory = getSubPermission("bookingHistory").view
-      ? await Booking.find({
-          status: { $in: ["COMPLETED", "CANCELLED"] },
-          paymentStatus: "PAID",
-          softDeleted: false,
-        })
+      ? await Booking.find(histQuery)
           .populate("userId", "name phone email role")
           .populate("companyId", "name")
           .populate("companyEmployeeId", "name mobile email employeeId")
@@ -95,10 +200,7 @@ export async function GET() {
       : [];
 
     const pendingPayments = getSubPermission("pendingPayments").view
-      ? await Booking.find({
-          paymentStatus: "PENDING",
-          softDeleted: false,
-        })
+      ? await Booking.find(pendingQuery)
           .populate("userId", "name phone email role")
           .populate("companyId", "name")
           .populate("companyEmployeeId", "name mobile email employeeId")
@@ -107,10 +209,7 @@ export async function GET() {
       : [];
 
     const failedPayments = getSubPermission("failedPayments").view
-      ? await Booking.find({
-          paymentStatus: "FAILED",
-          softDeleted: false,
-        })
+      ? await Booking.find(failedQuery)
           .populate("userId", "name phone email role")
           .populate("companyId", "name")
           .populate("companyEmployeeId", "name mobile email employeeId")
@@ -119,9 +218,7 @@ export async function GET() {
       : [];
 
     const cancellationRequests = getSubPermission("cancellationRequests").view
-      ? await BookingRequest.find({
-          type: "CANCELLATION",
-        })
+      ? await BookingRequest.find(cancelQuery)
           .populate("userId", "name phone email role")
           .populate("bookingId")
           .sort({ createdAt: -1 })
@@ -129,9 +226,7 @@ export async function GET() {
       : [];
 
     const timeChangeRequests = getSubPermission("timeChangeRequests").view
-      ? await BookingRequest.find({
-          type: "TIME_CHANGE",
-        })
+      ? await BookingRequest.find(timeChangeQuery)
           .populate("userId", "name phone email role")
           .populate("bookingId")
           .sort({ createdAt: -1 })

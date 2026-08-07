@@ -131,6 +131,9 @@ function mergeById<T extends { _id: string }>(current: T[], incoming: T[]): T[] 
 export default function AdminBookingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>("Advanced Booking");
   const [user, setUser] = useState<any>(null);
+  const [dateRange, setDateRange] = useState<string>("24h");
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -411,14 +414,19 @@ export default function AdminBookingsPage() {
 
   async function loadBookings(isBackground = false) {
     if (!isBackground) {
-      if (!data.advancedBookings?.length && !data.ongoingSessions?.length) {
-        setInitialLoading(true);
-      }
+      setInitialLoading(true);
     } else {
       setRefreshing(true);
     }
     try {
-      const response = await fetch("/api/admin/bookings", {
+      const params = new URLSearchParams();
+      params.append("range", dateRange);
+      if (dateRange === "custom") {
+        if (startDate) params.append("startDate", startDate);
+        if (endDate) params.append("endDate", endDate);
+      }
+
+      const response = await fetch(`/api/admin/bookings?${params.toString()}`, {
         cache: "no-store",
       });
 
@@ -430,7 +438,7 @@ export default function AdminBookingsPage() {
 
       const result = await response.json();
       setData((prev: any) => {
-        if (!prev || !prev.advancedBookings) {
+        if (!prev || !prev.advancedBookings || !isBackground) {
           return {
             advancedBookings: result.advancedBookings || [],
             ongoingSessions: result.ongoingSessions || [],
@@ -461,11 +469,14 @@ export default function AdminBookingsPage() {
 
   useEffect(() => {
     loadBookings(false);
+  }, [dateRange, startDate, endDate]);
+
+  useEffect(() => {
     const interval = setInterval(() => {
       loadBookings(true);
     }, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [dateRange, startDate, endDate]);
 
   async function handleProcessRequest(requestId: string, status: "APPROVED" | "REJECTED") {
     try {
@@ -667,6 +678,48 @@ export default function AdminBookingsPage() {
             {tab}
           </button>
         ))}
+      </div>
+      {/* Date Scope Filter */}
+      <div className="mt-4 flex flex-wrap items-center gap-3 bg-white p-3.5 rounded-2xl shadow-sm ring-1 ring-black/5">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-black text-[var(--primary)] uppercase tracking-wider">Date Scope:</span>
+          <select
+            value={dateRange}
+            onChange={(e) => setDateRange(e.target.value)}
+            className="h-9 rounded-full bg-gray-50 px-3.5 text-xs font-bold border border-gray-200 outline-none cursor-pointer hover:bg-gray-100 transition"
+          >
+            <option value="24h">Last 24 Hours (Default)</option>
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="thisWeek">This Week</option>
+            <option value="previousWeek">Previous Week</option>
+            <option value="thisMonth">This Month</option>
+            <option value="custom">Custom Range...</option>
+            <option value="all">All Time</option>
+          </select>
+        </div>
+
+        {dateRange === "custom" && (
+          <div className="flex items-center gap-2 animate-fade-in">
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="h-9 rounded-full bg-gray-50 px-3 text-xs font-bold border border-gray-250 outline-none"
+            />
+            <span className="text-xs font-bold text-[var(--text-muted)]">to</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="h-9 rounded-full bg-gray-50 px-3 text-xs font-bold border border-gray-255 outline-none"
+            />
+          </div>
+        )}
+
+        <div className="text-[10px] text-gray-400 font-bold ml-auto shrink-0">
+          Showing data within selected range (speeds up initial loading)
+        </div>
       </div>
 
       {/* Controls: Search, Filters, Columns toggle */}
