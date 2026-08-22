@@ -1,12 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
 function CompanyLoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectUrl = searchParams.get("redirect") || "/company/dashboard";
+
   const [form, setForm] = useState({
     identifier: "",
     password: "",
@@ -15,6 +18,22 @@ function CompanyLoginForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
+  // Check if already logged in (Auto login redirection)
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.user && data.user.role === "COMPANY_EMPLOYEE") {
+          if (data.user.mustChangePassword) {
+            router.replace("/company/change-password");
+          } else {
+            router.replace(redirectUrl);
+          }
+        }
+      })
+      .catch((err) => console.error("Auto-login validation failed:", err));
+  }, [router, redirectUrl]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -44,7 +63,7 @@ function CompanyLoginForm() {
       if (data?.user?.mustChangePassword) {
         router.replace("/company/change-password");
       } else {
-        router.replace("/company/dashboard");
+        router.replace(redirectUrl);
       }
     } catch (err) {
       setLoading(false);

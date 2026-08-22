@@ -57,7 +57,10 @@ export async function POST(request: Request) {
 
     for (const entry of entries) {
       const game = await Game.findById(entry.gameId).lean();
-      const baseUnitMinutes = game ? game.duration : 60;
+      const customConfig = company.gameConfigurations?.find(
+        (gc: any) => gc.gameId.toString() === entry.gameId.toString()
+      );
+      const baseUnitMinutes = customConfig ? customConfig.minimumDuration : (game ? game.duration : 60);
 
       // Find pricing rule closest to duration & 1 player
       const rule = await PricingRule.findOne({

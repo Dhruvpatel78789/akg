@@ -8,6 +8,8 @@ import { Transaction } from "@/models/Transaction";
 import { updateBookingStatuses } from "@/lib/booking-status-updater";
 import { Notification } from "@/models/Notification";
 import { Game } from "@/models/Game";
+import { Company } from "@/models/Company";
+import { CompanyEmployee } from "@/models/CompanyEmployee";
 
 import { formatToISTDate } from "@/lib/time";
 

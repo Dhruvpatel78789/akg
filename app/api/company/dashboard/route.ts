@@ -180,7 +180,16 @@ export async function GET() {
       companyName: company.name,
       mustChangePassword: employee.mustChangePassword,
     },
-    allowedGames: company.allowedGameIds || [],
+    allowedGames: (company.allowedGameIds || []).map((game: any) => {
+      const customConfig = company.gameConfigurations?.find(
+        (gc: any) => gc.gameId.toString() === game._id.toString()
+      );
+      const gameObj = typeof game.toObject === "function" ? game.toObject() : game;
+      return {
+        ...gameObj,
+        duration: customConfig ? customConfig.minimumDuration : game.duration,
+      };
+    }),
     activeSession,
     todayUpcomingSessions,
     calendarSessions,

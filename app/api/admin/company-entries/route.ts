@@ -131,7 +131,10 @@ export async function POST(request: Request) {
         }
       }
 
-      const baseUnitMinutes = game.duration || 60;
+      const customConfig = company.gameConfigurations?.find(
+        (gc: any) => gc.gameId.toString() === gameId.toString()
+      );
+      const baseUnitMinutes = customConfig ? customConfig.minimumDuration : (game.duration || 60);
       const units = Math.ceil(durationMinutes / baseUnitMinutes);
 
       const entry = await SessionEntry.create({
@@ -208,7 +211,10 @@ export async function POST(request: Request) {
           }
 
           const combinedEnd = new Date(combinedStart.getTime() + duration * 60000);
-          const baseUnitMinutes = game.duration || 60;
+          const customConfig = company.gameConfigurations?.find(
+            (gc: any) => gc.gameId.toString() === game._id.toString()
+          );
+          const baseUnitMinutes = customConfig ? customConfig.minimumDuration : (game.duration || 60);
           const units = Math.ceil(duration / baseUnitMinutes);
 
           const entry = await SessionEntry.create({
@@ -307,11 +313,22 @@ export async function POST(request: Request) {
         const randomStart = new Date(randomTime);
         randomStart.setMinutes(Math.random() > 0.5 ? 30 : 0, 0, 0); // align to clean 30-min marks
         
-        // Pick duration: 60, 90, 120
-        const duration = [60, 90, 120][Math.floor(Math.random() * 3)];
-        const randomEnd = new Date(randomStart.getTime() + duration * 60000);
+        // Resolve company minimum duration
+        const customConfig = company.gameConfigurations?.find(
+          (gc: any) => gc.gameId.toString() === game._id.toString()
+        );
+        const companyMinDuration = customConfig ? customConfig.minimumDuration : (game.duration || 60);
 
-        const units = Math.ceil(duration / (game.duration || 60));
+        // Pick duration: 1x, 2x, 3x multiplier of company minimum duration (maxed at game maximumDuration)
+        const maxLimit = game.maximumDuration || 180;
+        const possibleMultipliers = [1, 2, 3].filter(m => m * companyMinDuration <= maxLimit);
+        const multiplier = possibleMultipliers.length > 0 
+          ? possibleMultipliers[Math.floor(Math.random() * possibleMultipliers.length)]
+          : 1;
+
+        const duration = multiplier * companyMinDuration;
+        const randomEnd = new Date(randomStart.getTime() + duration * 60000);
+        const units = multiplier;
 
         const entry = await SessionEntry.create({
           bookingGroupId: `random-${Date.now()}-${i}`,

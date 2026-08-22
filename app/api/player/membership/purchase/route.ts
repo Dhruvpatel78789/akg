@@ -335,6 +335,7 @@ export async function POST(request: Request) {
     }
     await user.save();
 
+    const { parseIST, formatToISTDate } = await import("@/lib/time");
     const baseDate = new Date(); // Starts today
 
     const membership = await Membership.create({
@@ -350,8 +351,8 @@ export async function POST(request: Request) {
       totalDays: normalizedDuration.totalDays,
 
       startDate: baseDate,
-      startTime: timeStringToTodayDate(startTime),
-      endTime: timeStringToTodayDate(endTime),
+      startTime: parseIST("2000-01-01", startTime),
+      endTime: parseIST("2000-01-01", endTime),
 
       price: expectedPrice,
       originalPrice: duration.finalPrice,
@@ -368,10 +369,11 @@ export async function POST(request: Request) {
     const [endH, endM] = endTime.split(":").map(Number);
     const bookingPromises = [];
     
+    const startISTDateStr = formatToISTDate(baseDate);
 
     for (let d = 0; d < normalizedDuration.totalDays; d++) {
-      const currentDayStart = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() + d, startH, startM, 0, 0);
-      const currentDayEnd = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() + d, endH, endM, 0, 0);
+      const currentDayStart = parseIST(startISTDateStr, startTime, d);
+      const currentDayEnd = parseIST(startISTDateStr, endTime, d);
       
       // If the duration crosses midnight
       if (endH < startH || (endH === startH && endM < startM)) {

@@ -10,12 +10,19 @@ import {
 type Game = {
   _id: string;
   name: string;
+  duration?: number;
+  maximumDuration?: number;
 };
 
 type GameDiscount = {
   gameId: string;
   discountType: "PERCENTAGE" | "FLAT";
   discountValue: number;
+};
+
+type GameConfiguration = {
+  gameId: string;
+  minimumDuration: number;
 };
 
 type Company = {
@@ -29,6 +36,7 @@ type Company = {
   allowedGameIds: string[] | Game[];
   discountPercentage: number;
   gameDiscounts?: GameDiscount[];
+  gameConfigurations?: GameConfiguration[];
   status: "ACTIVE" | "INACTIVE";
 };
 
@@ -69,12 +77,19 @@ export default function AdminCompaniesPage() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
+  const [companySearch, setCompanySearch] = useState("");
+  const [employeeSearch, setEmployeeSearch] = useState("");
 
   // Tabs
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [empInitialLoading, setEmpInitialLoading] = useState(false);
   const [empRefreshing, setEmpRefreshing] = useState(false);
+
+  // Reset employee search when selecting another company
+  useEffect(() => {
+    setEmployeeSearch("");
+  }, [selectedCompanyId]);
 
   // Company Modal form
   const [showCompanyModal, setShowCompanyModal] = useState(false);
@@ -89,8 +104,13 @@ export default function AdminCompaniesPage() {
     allowedGameIds: [] as string[],
     discountPercentage: 0,
     gameDiscounts: [] as GameDiscount[],
+    gameConfigurations: [] as GameConfiguration[],
     status: "ACTIVE" as "ACTIVE" | "INACTIVE",
   });
+
+  // Custom Recalculation Prompt modal states
+  const [showRecalcPrompt, setShowRecalcPrompt] = useState(false);
+  const [recalcPromptAction, setRecalcPromptAction] = useState<((recalc: boolean) => Promise<void>) | null>(null);
 
   // Game Discount row states inside Company Modal
   const [newDiscGameId, setNewDiscGameId] = useState("");
@@ -270,10 +290,7 @@ export default function AdminCompaniesPage() {
     }
   };
 
-  async function handleCompanySubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setMessage("");
-
+  async function submitCompanyForm(recalculateUnbilled: boolean) {
     try {
       const url = editingCompany 
         ? `/api/admin/companies/${editingCompany._id}` 
@@ -283,7 +300,10 @@ export default function AdminCompaniesPage() {
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(companyForm),
+        body: JSON.stringify({
+          ...companyForm,
+          recalculateUnbilled,
+        }),
       });
 
       const data = await res.json();
@@ -297,6 +317,30 @@ export default function AdminCompaniesPage() {
       }
     } catch {
       setMessage("Network error submitting company details.");
+    }
+  }
+
+  async function handleCompanySubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setMessage("");
+
+    let hasChanges = false;
+    if (editingCompany && editingCompany.gameConfigurations) {
+      const oldConfigs = editingCompany.gameConfigurations || [];
+      const newConfigs = companyForm.gameConfigurations || [];
+      hasChanges = newConfigs.some((newC: any) => {
+        const oldC = oldConfigs.find((o: any) => (o.gameId?._id || o.gameId || "").toString() === (newC.gameId?._id || newC.gameId || "").toString());
+        return oldC && oldC.minimumDuration !== newC.minimumDuration;
+      });
+    }
+
+    if (hasChanges) {
+      setRecalcPromptAction(() => async (recalc: boolean) => {
+        await submitCompanyForm(recalc);
+      });
+      setShowRecalcPrompt(true);
+    } else {
+      await submitCompanyForm(false);
     }
   }
 
@@ -469,11 +513,22 @@ export default function AdminCompaniesPage() {
   }
 
   function handleGameCheckbox(gameId: string, checked: boolean) {
+    const game = games.find(g => g._id === gameId);
+    const defaultDuration = game ? (game.duration || 60) : 60;
     setCompanyForm(prev => {
       const ids = checked 
         ? [...prev.allowedGameIds, gameId] 
         : prev.allowedGameIds.filter(id => id !== gameId);
-      return { ...prev, allowedGameIds: ids };
+
+      let configs = prev.gameConfigurations || [];
+      if (checked) {
+        if (!configs.some((c: any) => (c.gameId?._id || c.gameId || "").toString() === gameId.toString())) {
+          configs = [...configs, { gameId, minimumDuration: defaultDuration }];
+        }
+      } else {
+        configs = configs.filter((c: any) => (c.gameId?._id || c.gameId || "").toString() !== gameId.toString());
+      }
+      return { ...prev, allowedGameIds: ids, gameConfigurations: configs };
     });
   }
 
@@ -532,6 +587,7 @@ export default function AdminCompaniesPage() {
               allowedGameIds: [],
               discountPercentage: 0,
               gameDiscounts: [],
+              gameConfigurations: [],
               status: "ACTIVE",
             });
             setShowCompanyModal(true);
@@ -552,89 +608,117 @@ export default function AdminCompaniesPage() {
       <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         {/* Left Column: Companies Master List */}
         <div className="lg:col-span-1 space-y-4">
-          <h3 className="text-sm font-black text-[var(--text-muted)] uppercase tracking-wider">Partners</h3>
+          <div className="flex flex-col gap-2">
+            <h3 className="text-sm font-black text-[var(--text-muted)] uppercase tracking-wider">Partners</h3>
+            <input
+              type="text"
+              placeholder="Search by name, contact, phone, email..."
+              value={companySearch}
+              onChange={(e) => setCompanySearch(e.target.value)}
+              className="w-full h-11 rounded-xl bg-white px-4 text-sm font-semibold border-0 outline-none ring-1 ring-gray-250/20 focus:ring-[var(--primary)] shadow-sm"
+            />
+          </div>
           {initialLoading ? (
             <p className="text-sm font-bold text-[var(--text-muted)] animate-pulse">Loading companies...</p>
           ) : companies.length === 0 ? (
             <p className="text-sm font-bold text-[var(--text-muted)] bg-white p-4 rounded-2xl ring-1 ring-black/5">No companies configured.</p>
           ) : (
             <div className="grid gap-3">
-              {companies.map((c) => {
-                const isSelected = selectedCompanyId === c._id;
-                return (
-                  <div 
-                    key={c._id}
-                    onClick={() => setSelectedCompanyId(c._id)}
-                    className={`rounded-3xl p-5 border text-left cursor-pointer transition relative group ${
-                      isSelected 
-                        ? "bg-white border-[var(--primary)] shadow-md ring-1 ring-[var(--primary)]/20" 
-                        : "bg-white border-transparent hover:border-gray-200 shadow-sm"
-                    }`}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mb-1.5 ${
-                          c.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" : "bg-gray-150 text-gray-700"
-                        }`}>
-                          {c.status}
-                        </span>
-                        <h4 className="text-lg font-black text-[var(--primary)] flex items-center gap-1.5">
-                          <Building2 size={18} className="text-gray-400" />
-                          {c.name}
-                        </h4>
-                        <p className="text-xs text-gray-500 font-bold mt-1">Contact: {c.contactPerson}</p>
+              {(() => {
+                const filtered = companies.filter(c => {
+                  const q = companySearch.toLowerCase();
+                  return (
+                    (c.name || "").toLowerCase().includes(q) ||
+                    (c.contactPerson || "").toLowerCase().includes(q) ||
+                    (c.contactNumber || "").toLowerCase().includes(q) ||
+                    (c.email || "").toLowerCase().includes(q)
+                  );
+                });
+                if (filtered.length === 0) {
+                  return (
+                    <p className="text-xs font-bold text-[var(--text-muted)] bg-white p-4 rounded-2xl ring-1 ring-black/5">
+                      No partners match your search query.
+                    </p>
+                  );
+                }
+                return filtered.map((c) => {
+                  const isSelected = selectedCompanyId === c._id;
+                  return (
+                    <div 
+                      key={c._id}
+                      onClick={() => setSelectedCompanyId(c._id)}
+                      className={`rounded-3xl p-5 border text-left cursor-pointer transition relative group ${
+                        isSelected 
+                          ? "bg-white border-[var(--primary)] shadow-md ring-1 ring-[var(--primary)]/20" 
+                          : "bg-white border-transparent hover:border-gray-200 shadow-sm"
+                      }`}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mb-1.5 ${
+                            c.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" : "bg-gray-150 text-gray-700"
+                          }`}>
+                            {c.status}
+                          </span>
+                          <h4 className="text-lg font-black text-[var(--primary)] flex items-center gap-1.5">
+                            <Building2 size={18} className="text-gray-400" />
+                            {c.name}
+                          </h4>
+                          <p className="text-xs text-gray-500 font-bold mt-1">Contact: {c.contactPerson}</p>
+                        </div>
+
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingCompany(c);
+                              setCompanyForm({
+                                name: c.name,
+                                contactPerson: c.contactPerson,
+                                contactNumber: c.contactNumber,
+                                email: c.email,
+                                billingAddress: c.billingAddress,
+                                gstNumber: c.gstNumber || "",
+                                allowedGameIds: (c.allowedGameIds || []).map((g: any) => typeof g === "object" ? g._id : g),
+                                discountPercentage: c.discountPercentage || 0,
+                                gameDiscounts: c.gameDiscounts || [],
+                                gameConfigurations: c.gameConfigurations || [],
+                                status: c.status,
+                              });
+                              setShowCompanyModal(true);
+                            }}
+                            className="p-1.5 hover:bg-gray-100 rounded-full text-gray-600 transition"
+                            title="Edit Company"
+                          >
+                            <Edit size={14} />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteCompany(c._id);
+                            }}
+                            className="p-1.5 hover:bg-rose-50 rounded-full text-rose-600 transition"
+                            title="Delete Company"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </div>
 
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingCompany(c);
-                            setCompanyForm({
-                              name: c.name,
-                              contactPerson: c.contactPerson,
-                              contactNumber: c.contactNumber,
-                              email: c.email,
-                              billingAddress: c.billingAddress,
-                              gstNumber: c.gstNumber || "",
-                              allowedGameIds: (c.allowedGameIds || []).map((g: any) => typeof g === "object" ? g._id : g),
-                              discountPercentage: c.discountPercentage || 0,
-                              gameDiscounts: c.gameDiscounts || [],
-                              status: c.status,
-                            });
-                            setShowCompanyModal(true);
-                          }}
-                          className="p-1.5 hover:bg-gray-100 rounded-full text-gray-600 transition"
-                          title="Edit Company"
-                        >
-                          <Edit size={14} />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteCompany(c._id);
-                          }}
-                          className="p-1.5 hover:bg-rose-50 rounded-full text-rose-600 transition"
-                          title="Delete Company"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                      <div className="mt-3 pt-3 border-t grid grid-cols-2 gap-2 text-[10px] font-bold text-gray-500">
+                        <div className="flex items-center gap-1">
+                          <Percent size={12} className="text-gray-400" />
+                          <span>Discount: {c.discountPercentage}%</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <FileText size={12} className="text-gray-400" />
+                          <span>GST: {c.gstNumber || "N/A"}</span>
+                        </div>
                       </div>
                     </div>
-
-                    <div className="mt-3 pt-3 border-t grid grid-cols-2 gap-2 text-[10px] font-bold text-gray-500">
-                      <div className="flex items-center gap-1">
-                        <Percent size={12} className="text-gray-400" />
-                        <span>Discount: {c.discountPercentage}%</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <FileText size={12} className="text-gray-400" />
-                        <span>GST: {c.gstNumber || "N/A"}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
             </div>
           )}
         </div>
@@ -651,7 +735,33 @@ export default function AdminCompaniesPage() {
                     Employee Directory ({employees.length})
                   </h3>
 
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      onClick={async () => {
+                        if (!confirm("This will recalculate all existing company sessions that have not yet been billed using the current Company Minimum Duration settings.\n\nAlready generated bills and finalized invoices will not be modified.\n\nDo you want to continue?")) {
+                          return;
+                        }
+                        try {
+                          const res = await fetch(`/api/admin/companies/${selectedCompanyId}/recalculate`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({}),
+                          });
+                          const data = await res.json();
+                          if (res.ok && data.success) {
+                            alert(`Recalculation complete! Updated ${data.updatedCount} unbilled entries.`);
+                            loadData();
+                          } else {
+                            alert(data.message || "Recalculation failed.");
+                          }
+                        } catch (err) {
+                          alert("Network error running recalculation.");
+                        }
+                      }}
+                      className="flex items-center gap-1.5 text-[11px] font-black text-rose-700 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-full hover:bg-rose-100 transition active:scale-95 cursor-pointer"
+                    >
+                      Recalculate Existing Entries
+                    </button>
                     <button
                       onClick={() => {
                         setEmployeeForm({
@@ -770,82 +880,111 @@ export default function AdminCompaniesPage() {
                 ) : employees.length === 0 ? (
                   <p className="text-sm font-bold text-[var(--text-muted)] py-4 text-center">Roster is empty. Drag a CSV template to populate accounts.</p>
                 ) : (
-                  <div className="overflow-x-auto border rounded-2xl">
-                    <table className="w-full text-left text-xs min-w-[600px]">
-                      <thead>
-                        <tr className="bg-gray-50 border-b text-[var(--text-muted)] font-black uppercase tracking-wider">
-                          <th className="p-3">ID</th>
-                          <th>Name</th>
-                          <th>Mobile</th>
-                          <th>Email</th>
-                          <th>Dept / Pos</th>
-                          <th>Status</th>
-                          <th className="p-3 text-center">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {employees.map((emp) => (
-                          <tr key={emp._id} className="border-b last:border-0 hover:bg-gray-50/50 font-bold text-gray-700">
-                            <td className="p-3 font-mono font-black text-[var(--primary)]">{emp.employeeId}</td>
-                            <td className="font-black text-gray-900">{emp.name}</td>
-                            <td>{emp.mobile}</td>
-                            <td>{emp.email}</td>
-                            <td>{emp.department || emp.designation ? `${emp.department || "-"} / ${emp.designation || "-"}` : "-"}</td>
-                            <td>
-                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-black ${
-                                emp.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" : "bg-gray-150 text-gray-700"
-                              }`}>
-                                {emp.status}
-                              </span>
-                            </td>
-                            <td className="p-3">
-                              <div className="flex items-center justify-center gap-1.5">
-                                <button
-                                  onClick={() => {
-                                    setViewingEmployee(emp);
-                                    setShowViewEmployeeModal(true);
-                                  }}
-                                  className="p-1 hover:bg-gray-150 text-gray-700 rounded transition"
-                                  title="View Employee"
-                                >
-                                  <Eye size={14} />
-                                </button>
-                                <button
-                                  onClick={() => startEditEmployee(emp)}
-                                  className="p-1 hover:bg-indigo-50 text-indigo-700 rounded transition"
-                                  title="Edit Employee"
-                                >
-                                  <Edit size={14} />
-                                </button>
-                                <button
-                                  onClick={() => handleResetPassword(emp._id)}
-                                  className="p-1 hover:bg-amber-50 text-amber-600 rounded transition"
-                                  title="Reset Password"
-                                >
-                                  <Lock size={14} />
-                                </button>
-                                <button
-                                  onClick={() => handleToggleEmployeeStatus(emp)}
-                                  className={`p-1 rounded transition ${
-                                    emp.status === "ACTIVE" ? "hover:bg-rose-50 text-rose-600" : "hover:bg-emerald-50 text-emerald-600"
-                                  }`}
-                                  title={emp.status === "ACTIVE" ? "Disable Employee" : "Enable Employee"}
-                                >
-                                  <ShieldAlert size={14} />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteEmployee(emp._id)}
-                                  className="p-1 hover:bg-red-50 text-red-650 rounded transition"
-                                  title="Delete Employee"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </div>
-                            </td>
+                  <div className="space-y-3">
+                    <input
+                      type="text"
+                      placeholder="Search player by name, mobile, email, or employee ID..."
+                      value={employeeSearch}
+                      onChange={(e) => setEmployeeSearch(e.target.value)}
+                      className="w-full h-11 rounded-xl bg-gray-50 px-4 text-sm font-semibold border-0 outline-none ring-1 ring-gray-200 focus:ring-[var(--primary)]"
+                    />
+                    <div className="overflow-x-auto border rounded-2xl">
+                      <table className="w-full text-left text-xs min-w-[600px]">
+                        <thead>
+                          <tr className="bg-gray-50 border-b text-[var(--text-muted)] font-black uppercase tracking-wider">
+                            <th className="p-3">ID</th>
+                            <th>Name</th>
+                            <th>Mobile</th>
+                            <th>Email</th>
+                            <th>Dept / Pos</th>
+                            <th>Status</th>
+                            <th className="p-3 text-center">Actions</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {(() => {
+                            const filtered = employees.filter(emp => {
+                              const q = employeeSearch.toLowerCase();
+                              return (
+                                (emp.name || "").toLowerCase().includes(q) ||
+                                (emp.mobile || "").toLowerCase().includes(q) ||
+                                (emp.email || "").toLowerCase().includes(q) ||
+                                (emp.employeeId || "").toLowerCase().includes(q)
+                              );
+                            });
+                            if (filtered.length === 0) {
+                              return (
+                                <tr>
+                                  <td colSpan={7} className="p-8 text-center text-sm font-bold text-[var(--text-muted)]">
+                                    No players match your search query.
+                                  </td>
+                                </tr>
+                              );
+                            }
+                            return filtered.map((emp) => (
+                              <tr key={emp._id} className="border-b last:border-0 hover:bg-gray-50/50 font-bold text-gray-700">
+                                <td className="p-3 font-mono font-black text-[var(--primary)]">{emp.employeeId}</td>
+                                <td className="font-black text-gray-900">{emp.name}</td>
+                                <td>{emp.mobile}</td>
+                                <td>{emp.email}</td>
+                                <td>{emp.department || emp.designation ? `${emp.department || "-"} / ${emp.designation || "-"}` : "-"}</td>
+                                <td>
+                                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-black ${
+                                    emp.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" : "bg-gray-150 text-gray-700"
+                                  }`}>
+                                    {emp.status}
+                                  </span>
+                                </td>
+                                <td className="p-3">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button
+                                      onClick={() => {
+                                        setViewingEmployee(emp);
+                                        setShowViewEmployeeModal(true);
+                                      }}
+                                      className="p-1 hover:bg-gray-150 text-gray-700 rounded transition"
+                                      title="View Employee"
+                                    >
+                                      <Eye size={14} />
+                                    </button>
+                                    <button
+                                      onClick={() => startEditEmployee(emp)}
+                                      className="p-1 hover:bg-indigo-50 text-indigo-700 rounded transition"
+                                      title="Edit Employee"
+                                    >
+                                      <Edit size={14} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleResetPassword(emp._id)}
+                                      className="p-1 hover:bg-amber-50 text-amber-600 rounded transition"
+                                      title="Reset Password"
+                                    >
+                                      <Lock size={14} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleToggleEmployeeStatus(emp)}
+                                      className={`p-1 rounded transition ${
+                                        emp.status === "ACTIVE" ? "hover:bg-rose-50 text-rose-600" : "hover:bg-emerald-50 text-emerald-600"
+                                      }`}
+                                      title={emp.status === "ACTIVE" ? "Disable Employee" : "Enable Employee"}
+                                    >
+                                      <ShieldAlert size={14} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteEmployee(emp._id)}
+                                      className="p-1 hover:bg-red-50 text-red-650 rounded transition"
+                                      title="Delete Employee"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ));
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1300,6 +1439,55 @@ export default function AdminCompaniesPage() {
         </div>
       )}
 
+      {/* 3-Button Recalculation Prompt Modal */}
+      {showRecalcPrompt && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md bg-white rounded-3xl p-6 shadow-xl relative animate-fade-in space-y-4">
+            <h3 className="text-lg font-black text-rose-700">Update Existing Entries?</h3>
+            <p className="text-sm font-medium text-gray-600 leading-relaxed">
+              You have changed the Company Minimum Duration.
+              <br /><br />
+              Do you also want to update all existing unbilled company entries to use the new duration?
+              <br /><br />
+              Already generated or paid bills will not be modified.
+            </p>
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                onClick={async () => {
+                  setShowRecalcPrompt(false);
+                  if (recalcPromptAction) {
+                    await recalcPromptAction(true);
+                  }
+                }}
+                className="w-full h-11 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-full transition cursor-pointer"
+              >
+                Yes, Update Existing Entries
+              </button>
+              <button
+                onClick={async () => {
+                  setShowRecalcPrompt(false);
+                  if (recalcPromptAction) {
+                    await recalcPromptAction(false);
+                  }
+                }}
+                className="w-full h-11 bg-gray-600 hover:bg-gray-700 text-white font-black text-xs rounded-full transition cursor-pointer"
+              >
+                No, Apply Only to Future Bookings
+              </button>
+              <button
+                onClick={() => {
+                  setShowRecalcPrompt(false);
+                  setRecalcPromptAction(null);
+                }}
+                className="w-full h-11 bg-gray-150 hover:bg-gray-200 text-gray-700 font-black text-xs rounded-full transition cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Create / Edit Company Modal */}
       {showCompanyModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -1437,6 +1625,55 @@ export default function AdminCompaniesPage() {
                   )}
                 </div>
               </div>
+
+              {/* Game Configurations (Minimum Duration Override) */}
+              {companyForm.allowedGameIds.length > 0 && (
+                <div className="space-y-3 border-t pt-4 border-gray-100">
+                  <span className="text-[10px] font-black uppercase text-gray-400 block">Game Configuration (Min Duration overrides)</span>
+                  <div className="grid gap-3 bg-gray-50 p-4 rounded-2xl border border-gray-250/60 max-h-52 overflow-y-auto">
+                    <div className="grid grid-cols-3 gap-2 text-[9px] font-black text-gray-400 uppercase pb-1 border-b border-gray-150">
+                      <span>Game Name</span>
+                      <span>Default Minimum</span>
+                      <span>Company Minimum</span>
+                    </div>
+                    {companyForm.allowedGameIds.map(gameId => {
+                      const game = games.find(g => g._id === gameId);
+                      if (!game) return null;
+                      const config = (companyForm.gameConfigurations || []).find((c: any) => (c.gameId?._id || c.gameId || "").toString() === gameId.toString());
+                      const minDurationValue = config ? config.minimumDuration : (game.duration || 60);
+
+                      return (
+                        <div key={gameId} className="grid grid-cols-3 gap-2 items-center text-xs font-bold text-[var(--primary)]">
+                          <span>{game.name}</span>
+                          <span className="text-gray-500">{game.duration} min</span>
+                          <input
+                            type="number"
+                            value={minDurationValue}
+                            min={game.duration || 30}
+                            step={game.duration || 30}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setCompanyForm(prev => {
+                                const configs = (prev.gameConfigurations || []).map((c: any) => {
+                                  if ((c.gameId?._id || c.gameId || "").toString() === gameId.toString()) {
+                                    return { ...c, minimumDuration: val };
+                                  }
+                                  return c;
+                                });
+                                if (!configs.some((c: any) => (c.gameId?._id || c.gameId || "").toString() === gameId.toString())) {
+                                  configs.push({ gameId, minimumDuration: val });
+                                }
+                                return { ...prev, gameConfigurations: configs };
+                              });
+                            }}
+                            className="h-8 border border-gray-200 rounded-lg px-2 text-xs font-bold outline-none bg-white w-20"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Company Pricing & Game Discounts configuration panel */}
               <div className="space-y-3 border-t pt-4 border-gray-100">

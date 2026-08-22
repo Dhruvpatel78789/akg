@@ -310,6 +310,8 @@ export async function POST(request: Request) {
       const startTimeVal = plan.allowUserTimeSelection ? startTime : plan.adminStartTime;
       const endTimeVal = plan.allowUserTimeSelection ? endTime : plan.adminEndTime;
 
+      const { parseIST, formatToISTDate } = await import("@/lib/time");
+
       // Create Active Membership
       const membership = new Membership({
         userId: targetUser._id,
@@ -322,8 +324,8 @@ export async function POST(request: Request) {
         days: duration.days || 0,
         totalDays,
         startDate: sDate,
-        startTime: startTimeVal ? new Date(`2000-01-01T${startTimeVal}:00`) : undefined,
-        endTime: endTimeVal ? new Date(`2000-01-01T${endTimeVal}:00`) : undefined,
+        startTime: startTimeVal ? parseIST("2000-01-01", startTimeVal) : undefined,
+        endTime: endTimeVal ? parseIST("2000-01-01", endTimeVal) : undefined,
         price: duration.finalPrice,
         originalPrice: duration.originalPrice,
         status: "ACTIVE",
@@ -337,7 +339,8 @@ export async function POST(request: Request) {
 
       if (assignmentType === "COIN_PLAN") {
         const coinsAdded = plan.coinsAmount || 0;
-        targetUser.coinsAvailable = (targetUser.coinsAvailable || 0) + coinsAdded;
+        const previousFrozen = targetUser.coinsFrozen || 0;
+        targetUser.coinsAvailable = (targetUser.coinsAvailable || 0) + previousFrozen + coinsAdded;
         targetUser.coins = targetUser.coinsAvailable;
         targetUser.coinPlanExpiryDate = eDate;
         targetUser.activePlanId = plan._id;
@@ -374,6 +377,44 @@ export async function POST(request: Request) {
           note: offlinePaymentNote || `Membership plan '${plan.name}' manually created and confirmed paid by admin.`
         });
         await transaction.save();
+
+        // Generate Booking slots for each day of the membership period for FIXED membership
+        if (plan.type === "FIXED" && startTimeVal && endTimeVal) {
+          const { Booking } = await import("@/models/Booking");
+          const [startH, startM] = startTimeVal.split(":").map(Number);
+          const [endH, endM] = endTimeVal.split(":").map(Number);
+          const bookingPromises = [];
+          
+          const startISTDateStr = formatToISTDate(sDate);
+
+          for (let d = 0; d < totalDays; d++) {
+            const currentDayStart = parseIST(startISTDateStr, startTimeVal, d);
+            const currentDayEnd = parseIST(startISTDateStr, endTimeVal, d);
+
+            if (endH < startH || (endH === startH && endM < startM)) {
+              currentDayEnd.setDate(currentDayEnd.getDate() + 1);
+            }
+
+            bookingPromises.push(
+              Booking.create({
+                userId: targetUser._id,
+                gameId: plan.gameId,
+                gameName: plan.gameName,
+                startTime: currentDayStart,
+                endTime: currentDayEnd,
+                price: 0,
+                coinCost: 0,
+                playersCount: duration.playersIncluded || 1,
+                crossMidnight: endH < startH || (endH === startH && endM < startM),
+                playerType: "MEMBER",
+                paymentMode: "coins",
+                paymentStatus: "PAID",
+                status: "BOOKED",
+              })
+            );
+          }
+          await Promise.all(bookingPromises);
+        }
       }
     } else if (assignmentType === "ADD_COINS") {
       const addedCount = Number(coinsToAdd);

@@ -93,6 +93,7 @@ export async function GET(request: Request) {
     let endTime = searchParams.get("endTime"); // HH:MM (optional)
     const durationMinutesStr = searchParams.get("durationMinutes");
     const playersCountStr = searchParams.get("playersCount");
+    const excludeBookingId = searchParams.get("excludeBookingId");
 
     if (!gameId || !playersCountStr) {
       return NextResponse.json({ message: "Missing gameId or playersCount" }, { status: 400 });
@@ -182,7 +183,7 @@ export async function GET(request: Request) {
         });
       }
 
-      const avail = await checkAvailability(gameId, start, end);
+      const avail = await checkAvailability(gameId, start, end, excludeBookingId || undefined);
       let suggestedSlots: any[] = [];
       if (!avail.available) {
         const { getAlternativeSlots } = await import("@/lib/availability");
@@ -193,7 +194,7 @@ export async function GET(request: Request) {
       let courts: any[] = [];
       if (game.allowCourtSelection) {
         const { checkCourtsStatus } = await import("@/lib/availability");
-        courts = await checkCourtsStatus(gameId, start, end);
+        courts = await checkCourtsStatus(gameId, start, end, excludeBookingId || undefined);
         availableCourts = courts.filter((c: any) => c.status === "Available").map((c: any) => c.courtName);
       }
 
@@ -358,7 +359,7 @@ export async function POST(request: Request) {
 
     // Court Availability Check
     const { checkCourtsStatus } = await import("@/lib/availability");
-    const courtsStatus = await checkCourtsStatus(gameId, start, end, bookingId);
+    const courtsStatus = await checkCourtsStatus(gameId, start, end, bookingId, authUser.userId);
     
     let finalCourt = "";
     if (game.allowCourtSelection && userCourt) {

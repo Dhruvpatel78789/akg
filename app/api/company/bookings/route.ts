@@ -63,9 +63,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Game not found" }, { status: 404 });
     }
 
+    const customConfig = company.gameConfigurations?.find(
+      (gc: any) => gc.gameId.toString() === gameId
+    );
+    const companyMinDuration = customConfig ? customConfig.minimumDuration : (game.duration || 60);
+
     if (game.fixedSlotBooking) {
       const { validateFixedSlot } = await import("@/lib/fixed-slots");
-      if (!validateFixedSlot(startTime, game.duration)) {
+      if (!validateFixedSlot(startTime, companyMinDuration)) {
         return NextResponse.json({
           message: "This game only allows fixed slot bookings. Please select a valid slot time."
         }, { status: 400 });
@@ -79,7 +84,6 @@ export async function POST(request: Request) {
     const bookingStart = parseDateTime(date, startTime);
     const bookingEnd = parseDateTime(date, endTime, crossMidnight ? 1 : 0);
 
-
     if (bookingStart.getTime() < Date.now() - 2 * 60 * 1000) {
       return NextResponse.json({ message: "Cannot book a slot in the past. Please select a future date and time." }, { status: 400 });
     }
@@ -89,6 +93,18 @@ export async function POST(request: Request) {
     }
 
     const durationMinutes = Math.round((bookingEnd.getTime() - bookingStart.getTime()) / (60 * 1000));
+
+    if (durationMinutes % companyMinDuration !== 0) {
+      return NextResponse.json({
+        message: `Booking duration must be a multiple of the company's minimum duration of ${companyMinDuration} minutes.`
+      }, { status: 400 });
+    }
+
+    if (durationMinutes > game.maximumDuration) {
+      return NextResponse.json({
+        message: `Booking duration cannot exceed the game's maximum duration of ${game.maximumDuration} minutes.`
+      }, { status: 400 });
+    }
 
     // Get courts
     const courts = await Court.find({ gameId, active: true }).lean();

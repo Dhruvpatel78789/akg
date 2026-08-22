@@ -35,6 +35,7 @@ function BookSessionForm() {
   const [user, setUser] = useState<any | null>(null);
 
   const [duration, setDuration] = useState(0);
+  const [bookingId, setBookingId] = useState("");
 
   // Status & Validation
   const [checking, setChecking] = useState(false);
@@ -229,6 +230,7 @@ function BookSessionForm() {
         if (draft.duration) setDuration(draft.duration);
         if (draft.playersCount) setPlayersCount(draft.playersCount);
         if (draft.selectedCourt) setSelectedCourt(draft.selectedCourt);
+        if (draft.bookingId) setBookingId(draft.bookingId);
       }
     } catch (e) {
       console.error("Error restoring member draft:", e);
@@ -334,6 +336,9 @@ function BookSessionForm() {
           queryParams.date = date;
           queryParams.startTime = startTime;
           queryParams.endTime = endTime;
+        }
+        if (bookingId) {
+          queryParams.excludeBookingId = bookingId;
         }
 
         const query = new URLSearchParams(queryParams);

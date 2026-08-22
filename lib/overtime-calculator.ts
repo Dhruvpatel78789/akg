@@ -4,6 +4,7 @@ import { PricingRule } from "@/models/PricingRule";
 import { AdditionalCharge } from "@/models/AdditionalCharge";
 import { SessionEntry } from "@/models/SessionEntry";
 import { Notification } from "@/models/Notification";
+import { Company } from "@/models/Company";
 
 export async function processOvertimeAndExit(
   bookingId: string,
@@ -19,7 +20,19 @@ export async function processOvertimeAndExit(
   const game = await Game.findById(booking.gameId).lean();
   if (!game) return { success: false, reason: "Game not found" };
 
-  const minimumUnit = game.duration || 60;
+  let minimumUnit = game.duration || 60;
+  if (booking.playerType === "COMPANY" && booking.companyId) {
+    const companyObj = await Company.findById(booking.companyId).lean();
+    if (companyObj && companyObj.gameConfigurations) {
+      const customConfig = companyObj.gameConfigurations.find(
+        (gc: any) => gc.gameId.toString() === booking.gameId?.toString()
+      );
+      if (customConfig) {
+        minimumUnit = customConfig.minimumDuration;
+      }
+    }
+  }
+
   const maxUnits = (game.maximumDuration || 180) / minimumUnit;
   const maxBillableUnits = maxUnits + 1;
   const buffer = game.bufferMinutes || 0;

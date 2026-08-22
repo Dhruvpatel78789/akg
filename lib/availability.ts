@@ -21,7 +21,7 @@ export function calculateBasePrice(rule: any, playersIncluded: number) {
   return rule.baseCourtPrice + playersIncluded * rule.pricePerPlayer;
 }
 
-export async function checkCourtAvailability(gameId: string, bookingStart: Date, bookingEnd: Date, excludeBookingId?: string) {
+export async function checkCourtAvailability(gameId: string, bookingStart: Date, bookingEnd: Date, excludeBookingId?: string, excludeUserId?: string) {
   // 1. Dependency block check (if this game is blocked by another booking's dependency block)
   const depBlocks = await DependencyBlock.find({
     blockedGameId: gameId,
@@ -162,7 +162,8 @@ export async function checkCourtAvailability(gameId: string, bookingStart: Date,
       startTime: { $lt: bookingEnd },
       endTime: { $gt: bookingStart },
       holdExpiresAt: { $gt: new Date() },
-      status: "HELD"
+      status: "HELD",
+      ...(excludeUserId ? { userId: { $ne: excludeUserId } } : {})
     }).lean(),
     excludeBookingId && mongoose.Types.ObjectId.isValid(excludeBookingId)
       ? Booking.findById(excludeBookingId).lean()
@@ -234,7 +235,7 @@ export async function checkCourtAvailability(gameId: string, bookingStart: Date,
   return { available: false, reason: "All courts are fully booked or blocked for this slot" };
 }
 
-export async function checkCourtsStatus(gameId: string, bookingStart: Date, bookingEnd: Date, excludeBookingId?: string) {
+export async function checkCourtsStatus(gameId: string, bookingStart: Date, bookingEnd: Date, excludeBookingId?: string, excludeUserId?: string) {
   const courts = await Court.find({ gameId }).lean();
   if (courts.length === 0) {
     return [];
@@ -275,7 +276,8 @@ export async function checkCourtsStatus(gameId: string, bookingStart: Date, book
       startTime: { $lt: bookingEnd },
       endTime: { $gt: bookingStart },
       holdExpiresAt: { $gt: new Date() },
-      status: "HELD"
+      status: "HELD",
+      ...(excludeUserId ? { userId: { $ne: excludeUserId } } : {})
     }).lean(),
     excludeBookingId && mongoose.Types.ObjectId.isValid(excludeBookingId)
       ? Booking.findById(excludeBookingId).lean()

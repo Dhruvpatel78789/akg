@@ -60,6 +60,7 @@ const cached = global as typeof globalThis & {
     conn: typeof mongoose | null;
     promise: Promise<typeof mongoose> | null;
   };
+  hasMigratedCompany?: boolean;
 };
 
 if (!cached.mongoose) {
@@ -74,5 +75,17 @@ export async function connectDB() {
   }
 
   cached.mongoose!.conn = await cached.mongoose!.promise;
+  
+  // Run one-time company game configuration migration on start exactly once
+  if (!cached.hasMigratedCompany) {
+    cached.hasMigratedCompany = true;
+    try {
+      const { runCompanyMigration } = await import("@/lib/company-migration");
+      await runCompanyMigration();
+    } catch (migErr) {
+      console.error("Migration import failed inside connectDB:", migErr);
+    }
+  }
+
   return cached.mongoose!.conn;
 }

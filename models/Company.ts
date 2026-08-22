@@ -23,6 +23,12 @@ const CompanySchema = new Schema(
       default: "ACTIVE",
     },
     colorCode: { type: String },
+    gameConfigurations: [
+      {
+        gameId: { type: Schema.Types.ObjectId, ref: "Game", required: true },
+        minimumDuration: { type: Number, required: true }
+      }
+    ],
     softDeleted: { type: Boolean, default: false },
   },
   { timestamps: true }
