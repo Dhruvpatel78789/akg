@@ -4,6 +4,8 @@ import { Promotion } from "@/models/Promotion";
 import { getAuthUser } from "@/lib/auth";
 import { User } from "@/models/User";
 
+import { formatToISTDate, formatToISTTime } from "@/lib/time";
+
 export async function GET(request: Request) {
   await connectDB();
 
@@ -56,19 +58,24 @@ export async function GET(request: Request) {
     .sort({ priority: -1, createdAt: -1 })
     .lean();
 
-  // Filter based on schedules
+  // Filter based on schedules (using IST timezone for date & time safety)
   const now = new Date();
-  const currentDay = now.getDay(); // 0 (Sunday) to 6 (Saturday)
-  
-  // Format current local time as HH:MM
-  const currentHours = String(now.getHours()).padStart(2, "0");
-  const currentMinutes = String(now.getMinutes()).padStart(2, "0");
-  const currentTimeStr = `${currentHours}:${currentMinutes}`;
+  const todayISTStr = formatToISTDate(now);
+  const currentTimeStr = formatToISTTime(now);
+
+  const istDate = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+  const currentDay = istDate.getDay();
 
   const validPromotions = promotions.filter((promo: any) => {
-    // 1. Date range checks
-    if (promo.startDate && new Date(promo.startDate) > now) return false;
-    if (promo.endDate && new Date(promo.endDate) < now) return false;
+    // 1. Date range checks (compare YYYY-MM-DD in IST)
+    if (promo.startDate) {
+      const startISTStr = formatToISTDate(promo.startDate);
+      if (startISTStr > todayISTStr) return false;
+    }
+    if (promo.endDate) {
+      const endISTStr = formatToISTDate(promo.endDate);
+      if (endISTStr < todayISTStr) return false;
+    }
 
     // 2. Day of week check
     if (promo.daysOfWeek && promo.daysOfWeek.length > 0) {
