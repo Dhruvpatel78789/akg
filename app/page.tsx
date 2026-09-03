@@ -245,22 +245,36 @@ export default function HomePage() {
               }}
             >
               {promotions.map((promo, index) => {
+                const mediaUrl = promo.mediaUrl || promo.imageUrl;
                 const content = (
                   <div className="relative h-full w-full">
-                    {promo.imageUrl && (
+                    {mediaUrl && (promo.type === "IMAGE" || !promo.type) && (
                       <Image
-                        src={promo.imageUrl}
-                        alt={promo.title || "Promotion"}
+                        src={mediaUrl}
+                        alt={promo.altText || promo.title || "Promotion"}
                         fill
                         priority={index === 0}
+                        unoptimized
                         className="object-cover object-center opacity-85"
+                      />
+                    )}
+                    {mediaUrl && promo.type === "VIDEO" && (
+                      <video
+                        src={mediaUrl}
+                        className="absolute inset-0 h-full w-full object-cover opacity-85"
+                        autoPlay
+                        muted
+                        loop
+                        playsInline
                       />
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
                     <div className="absolute bottom-10 left-6 right-6 text-white">
-                      <h3 className="text-2xl font-black md:text-3xl leading-snug">
-                        {promo.title}
-                      </h3>
+                      {promo.title && (
+                        <h3 className="text-2xl font-black md:text-3xl leading-snug">
+                          {promo.title}
+                        </h3>
+                      )}
                       {promo.description && (
                         <p className="mt-2 text-xs font-bold opacity-90 md:text-sm line-clamp-2">
                           {promo.description}
