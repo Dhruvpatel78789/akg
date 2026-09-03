@@ -246,6 +246,7 @@ export default function HomePage() {
             >
               {promotions.map((promo, index) => {
                 const mediaUrl = promo.mediaUrl || promo.imageUrl;
+                const hasText = Boolean(promo.title || promo.description || promo.subtitle);
                 const content = (
                   <div className="relative h-full w-full">
                     {mediaUrl && (promo.type === "IMAGE" || !promo.type) && (
@@ -255,32 +256,36 @@ export default function HomePage() {
                         fill
                         priority={index === 0}
                         unoptimized
-                        className="object-cover object-center opacity-85"
+                        className="object-cover object-center"
                       />
                     )}
                     {mediaUrl && promo.type === "VIDEO" && (
                       <video
                         src={mediaUrl}
-                        className="absolute inset-0 h-full w-full object-cover opacity-85"
+                        className="absolute inset-0 h-full w-full object-cover"
                         autoPlay
                         muted
                         loop
                         playsInline
                       />
                     )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                    <div className="absolute bottom-10 left-6 right-6 text-white">
-                      {promo.title && (
-                        <h3 className="text-2xl font-black md:text-3xl leading-snug">
-                          {promo.title}
-                        </h3>
-                      )}
-                      {promo.description && (
-                        <p className="mt-2 text-xs font-bold opacity-90 md:text-sm line-clamp-2">
-                          {promo.description}
-                        </p>
-                      )}
-                    </div>
+                    {hasText && (
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                    )}
+                    {hasText && (
+                      <div className="absolute bottom-10 left-6 right-6 text-white">
+                        {promo.title && (
+                          <h3 className="text-2xl font-black md:text-3xl leading-snug">
+                            {promo.title}
+                          </h3>
+                        )}
+                        {promo.description && (
+                          <p className="mt-2 text-xs font-bold opacity-90 md:text-sm line-clamp-2">
+                            {promo.description}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
 
