@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { Edit2, Trash2, RotateCcw, X, Filter, Search, Building, Gamepad, Plus, Upload, Play } from "lucide-react";
+import { formatToISTDate, formatToISTTime } from "@/lib/time";
 
 type Company = {
   _id: string;
@@ -483,12 +484,11 @@ export default function AdminCompanyEntriesPage() {
     
     // Format dates to datetime-local inputs: YYYY-MM-DDTHH:MM
     const formatToLocal = (dStr: string) => {
-      const d = new Date(dStr);
-      if (isNaN(d.getTime())) return "";
-      // IST offset is +05:30 (5.5 hours) from UTC.
-      // Offset addition in milliseconds: 5.5 * 60 * 60 * 1000 = 19800000
-      const istTime = new Date(d.getTime() + 19800000);
-      return istTime.toISOString().slice(0, 16);
+      if (!dStr) return "";
+      const datePart = formatToISTDate(dStr);
+      const timePart = formatToISTTime(dStr);
+      if (!datePart || !timePart) return "";
+      return `${datePart}T${timePart}`;
     };
 
     setEditForm({

@@ -6,6 +6,7 @@ import { Company } from "@/models/Company";
 import { SessionEntry } from "@/models/SessionEntry";
 
 import { Game } from "@/models/Game";
+import { updateBookingStatuses } from "@/lib/booking-status-updater";
 
 async function populateGroupPlayers(sessionEntries: any[]) {
   if (!sessionEntries || sessionEntries.length === 0) return;
@@ -72,6 +73,7 @@ async function populateGroupPlayers(sessionEntries: any[]) {
 
 export async function GET() {
   await connectDB();
+  await updateBookingStatuses();
 
   const authUser = await getAuthUser();
 

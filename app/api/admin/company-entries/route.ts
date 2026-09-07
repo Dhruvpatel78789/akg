@@ -6,6 +6,7 @@ import { Game } from "@/models/Game";
 import { CompanyEmployee } from "@/models/CompanyEmployee";
 import { SessionEntry } from "@/models/SessionEntry";
 import { PricingRule } from "@/models/PricingRule";
+import { parseIST } from "@/lib/time";
 
 // GET handler
 export async function GET(request: Request) {
@@ -42,10 +43,8 @@ export async function GET(request: Request) {
     }
 
     if (date) {
-      const startOfDay = new Date(date);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(date);
-      endOfDay.setHours(23, 59, 59, 999);
+      const startOfDay = parseIST(date, "00:00");
+      const endOfDay = parseIST(date, "23:59:59");
       query.startTime = { $gte: startOfDay, $lte: endOfDay };
     }
 
@@ -98,7 +97,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: false, message: "Company, Employee, or Game not found" }, { status: 404 });
       }
 
-      const combinedStart = new Date(`${date}T${startTime}`);
+      const combinedStart = parseIST(date, startTime);
       const combinedEnd = new Date(combinedStart.getTime() + durationMinutes * 60000);
 
       // Fetch base rate for pricing calculations
@@ -204,7 +203,7 @@ export async function POST(request: Request) {
         }
 
         try {
-          const combinedStart = new Date(`${row.date}T${row.startTime}`);
+          const combinedStart = parseIST(row.date, row.startTime);
           if (isNaN(combinedStart.getTime())) {
             rejectedRows.push({ rowIndex: i + 1, error: `Invalid date or start time: ${row.date} ${row.startTime}` });
             continue;
@@ -295,8 +294,8 @@ export async function POST(request: Request) {
 
       // Calculate approximate amount per entry
       const targetPerEntry = Math.round(Number(targetAmount) / Number(entriesCount));
-      const startMs = new Date(startDate).getTime();
-      const endMs = new Date(endDate).getTime();
+      const startMs = parseIST(startDate, "00:00").getTime();
+      const endMs = parseIST(endDate, "23:59:59").getTime();
 
       const createdEntries = [];
       const courts = ["Court A", "Court B", "Court C"];

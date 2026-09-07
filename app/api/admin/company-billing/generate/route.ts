@@ -7,6 +7,7 @@ import { SessionEntry } from "@/models/SessionEntry";
 import { CompanyBill } from "@/models/CompanyBill";
 import { Game } from "@/models/Game";
 import { PricingRule } from "@/models/PricingRule";
+import { parseIST } from "@/lib/time";
 
 export async function POST(request: Request) {
   const { error } = await requireAdmin();
@@ -29,11 +30,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Company not found" }, { status: 404 });
     }
 
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
+    const start = parseIST(startDate, "00:00");
+    const end = parseIST(endDate, "23:59:59");
 
     // Find all completed/started/booked corporate session entries in range
     const entries = await SessionEntry.find({

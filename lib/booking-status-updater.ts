@@ -111,14 +111,23 @@ export async function updateBookingStatuses() {
   });
 
   for (const entry of entriesToStart) {
+    const isCompanyEntry = entry.userType === "COMPANY_EMPLOYEE" || !!entry.companyId || !!entry.companyEmployeeId;
     if (entry.bookingId) {
       const parentBooking = await Booking.findById(entry.bookingId);
+      const isParentCompany = parentBooking && (parentBooking.playerType === "COMPANY" || !!parentBooking.companyId || !!parentBooking.companyEmployeeId);
+
       if (
         parentBooking &&
-        parentBooking.playerType !== "COMPANY" &&
+        !isCompanyEntry &&
+        !isParentCompany &&
         parentBooking.effectivePaymentStatus !== "PAID"
       ) {
-        continue; // Gate check-in/start
+        continue; // Gate check-in/start ONLY for non-company un-paid bookings
+      }
+
+      if (parentBooking && parentBooking.status === "BOOKED") {
+        parentBooking.status = "STARTED";
+        await parentBooking.save();
       }
     }
     entry.status = "STARTED";
@@ -135,11 +144,18 @@ export async function updateBookingStatuses() {
   });
 
   for (const b of bookingsToStart) {
-    if (b.playerType !== "COMPANY" && b.effectivePaymentStatus !== "PAID") {
-      continue; // Gate check-in/start
+    const isCompanyBooking = b.playerType === "COMPANY" || !!b.companyId || !!b.companyEmployeeId;
+    if (!isCompanyBooking && b.effectivePaymentStatus !== "PAID") {
+      continue; // Gate check-in/start ONLY for non-company un-paid bookings
     }
     b.status = "STARTED";
     await b.save();
+
+    // Sync all associated SessionEntry records to STARTED
+    await SessionEntry.updateMany(
+      { bookingId: b._id, status: "BOOKED" },
+      { $set: { status: "STARTED" } }
+    );
 
     await Notification.create({
       userId: b.userId,
