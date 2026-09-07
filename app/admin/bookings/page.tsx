@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Edit2, Trash2, Search, SlidersHorizontal, CheckSquare, Square, X, Eye, ShieldAlert } from "lucide-react";
+import { Edit2, Trash2, Search, SlidersHorizontal, CheckSquare, Square, X, Eye, ShieldAlert, FileDown } from "lucide-react";
 import { formatToISTDate, formatToISTDateTimeString, getBookingDisplayStatus } from "@/lib/time";
 
 type Booking = {
@@ -647,6 +647,140 @@ export default function AdminBookingsPage() {
     setVisibleColumns((prev) => ({ ...prev, [col]: !prev[col] }));
   };
 
+  // Export PDF containing only the visible columns for the active filtered bookings list
+  const handleDownloadPDF = async () => {
+    try {
+      const { default: jsPDF } = await import("jspdf");
+      const { default: autoTable } = await import("jspdf-autotable");
+
+      const columnDefs: { key: keyof typeof visibleColumns; label: string }[] = [
+        { key: "player", label: "Player" },
+        { key: "phone", label: "Phone" },
+        { key: "playerType", label: "Player Type" },
+        { key: "game", label: "Game" },
+        { key: "court", label: "Court" },
+        { key: "start", label: "Start" },
+        { key: "end", label: "End" },
+        { key: "exitTime", label: "Exit Time" },
+        { key: "status", label: "Status" },
+        { key: "orderId", label: "Order ID" },
+        { key: "createdAt", label: "Created At" },
+        { key: "payment", label: "Payment Details" },
+      ];
+
+      // Filter only columns that are set to true in visibleColumns (excluding 'actions')
+      const activeColumns = columnDefs.filter((col) => visibleColumns[col.key]);
+
+      if (activeColumns.length === 0) {
+        alert("No visible columns selected. Please enable at least one column in the Columns menu.");
+        return;
+      }
+
+      const headers = activeColumns.map((col) => col.label);
+
+      const tableRows: string[][] = activeBookingsList.map((booking) => {
+        return activeColumns.map((col) => {
+          let val = "";
+          switch (col.key) {
+            case "player":
+              val = booking.companyEmployeeId?.name || booking.userId?.name || "-";
+              break;
+            case "phone":
+              val = booking.companyEmployeeId?.mobile || booking.userId?.phone || "-";
+              break;
+            case "playerType":
+              if (booking.companyId?.name) {
+                val = booking.companyId.name;
+              } else {
+                val = (booking.userId?.role === "VISITOR" || booking.playerType === "VISITOR") ? "VISITOR" : "MEMBER";
+              }
+              break;
+            case "game":
+              val = booking.gameName || "-";
+              break;
+            case "court":
+              val = booking.court || "-";
+              break;
+            case "start":
+              val = formatDateTime(booking.startTime);
+              break;
+            case "end":
+              val = `${formatDateTime(booking.endTime)}${getEndSuffix(booking.startTime, booking.endTime)}`;
+              break;
+            case "exitTime":
+              val = formatDateTime(booking.exitedTime);
+              break;
+            case "status":
+              val = booking.status || "-";
+              break;
+            case "orderId":
+              val = booking.razorpayOrderId || "-";
+              break;
+            case "createdAt":
+              val = formatDateTime(booking.createdAt);
+              break;
+            case "payment":
+              const statusStr = booking.effectivePaymentStatus || booking.paymentStatus || "PENDING";
+              const modeStr = booking.paymentMode || booking.paymentMethod || "N/A";
+              val = `INR ${booking.price || 0} (${statusStr}) - ${modeStr}`;
+              break;
+            default:
+              val = "-";
+              break;
+          }
+          return val || "-";
+        });
+      });
+
+      // Use landscape orientation if more than 5 columns are displayed
+      const orientation = activeColumns.length > 5 ? "landscape" : "portrait";
+      const doc = new jsPDF({ orientation, unit: "mm", format: "a4" });
+
+      // Title & Metadata
+      doc.setFontSize(16);
+      doc.setTextColor(12, 47, 29); // Brand primary color
+      doc.text("Akshar Game Zone - Bookings Report", 14, 15);
+
+      doc.setFontSize(9);
+      doc.setTextColor(100, 100, 100);
+      const metadata = `Tab: ${activeTab} | Scope: ${dateRange === "all" ? "All Time" : dateRange} | Status: ${statusFilter} | Player Type: ${playerTypeFilter} | Total: ${activeBookingsList.length}`;
+      doc.text(metadata, 14, 21);
+
+      autoTable(doc, {
+        startY: 25,
+        head: [headers],
+        body: tableRows,
+        styles: {
+          fontSize: 8,
+          cellPadding: 2,
+        },
+        headStyles: {
+          fillColor: [12, 47, 29],
+          textColor: [255, 255, 255],
+          fontStyle: "bold",
+        },
+        alternateRowStyles: {
+          fillColor: [248, 250, 248],
+        },
+        didDrawPage: (data) => {
+          const str = `Page ${data.pageNumber} of ${doc.getNumberOfPages()}`;
+          doc.setFontSize(8);
+          doc.setTextColor(150, 150, 150);
+          const pageSize = doc.internal.pageSize;
+          const pageHeight = pageSize.height || pageSize.getHeight();
+          const pageWidth = pageSize.width || pageSize.getWidth();
+          doc.text(str, pageWidth - 30, pageHeight - 10);
+        },
+      });
+
+      const sanitizedTab = activeTab.toLowerCase().replace(/\s+/g, "_");
+      doc.save(`bookings_${sanitizedTab}_${formatToISTDate(new Date())}.pdf`);
+    } catch (err) {
+      console.error("Failed to generate PDF:", err);
+      alert("Failed to generate PDF. Please try again.");
+    }
+  };
+
   return (
     <section className="min-w-0 pb-10">
       <h1 className="text-4xl font-black text-[var(--primary)] flex items-center gap-2">
@@ -763,6 +897,16 @@ export default function AdminBookingsPage() {
               <option value="COMPANY">Company</option>
             </select>
           </div>
+
+          {/* Download PDF button */}
+          <button
+            onClick={handleDownloadPDF}
+            className="h-10 flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 text-xs font-bold text-[var(--primary)] hover:bg-gray-50 transition shadow-xs cursor-pointer"
+            title="Download PDF report of currently visible columns"
+          >
+            <FileDown size={14} className="text-[var(--primary)]" />
+            Download PDF
+          </button>
 
           {/* Column Toggle dropdown */}
           <div className="relative">
