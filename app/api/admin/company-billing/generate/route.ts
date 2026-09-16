@@ -8,6 +8,12 @@ import { CompanyBill } from "@/models/CompanyBill";
 import { Game } from "@/models/Game";
 import { PricingRule } from "@/models/PricingRule";
 import { parseIST } from "@/lib/time";
+import {
+  getCompanyMinDuration,
+  getCompanyGameDiscount,
+  getCompanyPricingRule,
+  calculateRatePerUnit,
+} from "@/lib/company-pricing";
 
 export async function POST(request: Request) {
   const { error } = await requireAdmin();
@@ -54,35 +60,17 @@ export async function POST(request: Request) {
     const employeeIdsSet = new Set<string>();
 
     for (const entry of entries) {
-      const game = await Game.findById(entry.gameId).lean();
-      const customConfig = company.gameConfigurations?.find(
-        (gc: any) => gc.gameId.toString() === entry.gameId.toString()
-      );
-      const baseUnitMinutes = customConfig ? customConfig.minimumDuration : (game ? game.duration : 60);
+      const baseUnitMinutes = getCompanyMinDuration(company, entry.gameId, game ? game.duration : 60);
 
-      // Find pricing rule closest to duration & 1 player
-      const rule = await PricingRule.findOne({
-        gameId: entry.gameId,
-        minPlayers: { $lte: 1 },
-        maxPlayers: { $gte: 1 },
-      }).lean();
+      // Find pricing rule matching company's minimum duration
+      const rule = await getCompanyPricingRule(entry.gameId, baseUnitMinutes);
 
-      // Determine price per unit (fallback to default 500)
-      let ratePerUnit = 500;
-      if (rule) {
-        if (rule.mode === "PER_PLAYER") {
-          ratePerUnit = rule.pricePerPlayer || 500;
-        } else {
-          ratePerUnit = (rule.baseCourtPrice || 0) + (rule.pricePerPlayer || 0);
-        }
-      }
+      // Determine price per unit
+      const ratePerUnit = calculateRatePerUnit(rule, baseUnitMinutes);
 
       // Check if there is a company discount override for this game
-      let itemBaseAmount = ratePerUnit;
       let gameDiscountApplied = 0;
-      const customDiscount = company.gameDiscounts?.find(
-        (gd: any) => gd.gameId.toString() === entry.gameId.toString()
-      );
+      const customDiscount = getCompanyGameDiscount(company, entry.gameId);
 
       if (customDiscount) {
         if (customDiscount.discountType === "FLAT") {

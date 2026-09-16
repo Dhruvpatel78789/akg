@@ -7,6 +7,12 @@ import { CompanyEmployee } from "@/models/CompanyEmployee";
 import { SessionEntry } from "@/models/SessionEntry";
 import { PricingRule } from "@/models/PricingRule";
 import { parseIST } from "@/lib/time";
+import {
+  getCompanyMinDuration,
+  getCompanyGameDiscount,
+  getCompanyPricingRule,
+  calculateRatePerUnit,
+} from "@/lib/company-pricing";
 
 // GET handler
 export async function GET(request: Request) {
@@ -100,27 +106,16 @@ export async function POST(request: Request) {
       const combinedStart = parseIST(date, startTime);
       const combinedEnd = new Date(combinedStart.getTime() + durationMinutes * 60000);
 
-      // Fetch base rate for pricing calculations
-      const rule = await PricingRule.findOne({
-        gameId,
-        minPlayers: { $lte: 1 },
-        maxPlayers: { $gte: 1 },
-      }).lean();
+      const baseUnitMinutes = getCompanyMinDuration(company, gameId, game.duration || 60);
+      const units = Math.ceil(durationMinutes / baseUnitMinutes);
 
-      let ratePerUnit = 500;
-      if (rule) {
-        if (rule.mode === "PER_PLAYER") {
-          ratePerUnit = rule.pricePerPlayer || 500;
-        } else {
-          ratePerUnit = (rule.baseCourtPrice || 0) + (rule.pricePerPlayer || 0);
-        }
-      }
+      // Fetch base rate for pricing calculations based on baseUnitMinutes
+      const rule = await getCompanyPricingRule(gameId, baseUnitMinutes);
+      const ratePerUnit = calculateRatePerUnit(rule, baseUnitMinutes);
 
       // Check game discount override
       let gameDiscountApplied = 0;
-      const customDiscount = company.gameDiscounts?.find(
-        (gd: any) => gd.gameId.toString() === gameId.toString()
-      );
+      const customDiscount = getCompanyGameDiscount(company, gameId);
 
       if (customDiscount) {
         if (customDiscount.discountType === "FLAT") {
@@ -129,12 +124,6 @@ export async function POST(request: Request) {
           gameDiscountApplied = Math.round(ratePerUnit * (customDiscount.discountValue / 100));
         }
       }
-
-      const customConfig = company.gameConfigurations?.find(
-        (gc: any) => gc.gameId.toString() === gameId.toString()
-      );
-      const baseUnitMinutes = customConfig ? customConfig.minimumDuration : (game.duration || 60);
-      const units = Math.ceil(durationMinutes / baseUnitMinutes);
 
       const entry = await SessionEntry.create({
         bookingGroupId: `manual-${Date.now()}`,
@@ -210,10 +199,7 @@ export async function POST(request: Request) {
           }
 
           const combinedEnd = new Date(combinedStart.getTime() + duration * 60000);
-          const customConfig = company.gameConfigurations?.find(
-            (gc: any) => gc.gameId.toString() === game._id.toString()
-          );
-          const baseUnitMinutes = customConfig ? customConfig.minimumDuration : (game.duration || 60);
+          const baseUnitMinutes = getCompanyMinDuration(company, game._id, game.duration || 60);
           const units = Math.ceil(duration / baseUnitMinutes);
 
           const entry = await SessionEntry.create({
@@ -313,10 +299,7 @@ export async function POST(request: Request) {
         randomStart.setMinutes(Math.random() > 0.5 ? 30 : 0, 0, 0); // align to clean 30-min marks
         
         // Resolve company minimum duration
-        const customConfig = company.gameConfigurations?.find(
-          (gc: any) => gc.gameId.toString() === game._id.toString()
-        );
-        const companyMinDuration = customConfig ? customConfig.minimumDuration : (game.duration || 60);
+        const companyMinDuration = getCompanyMinDuration(company, game._id, game.duration || 60);
 
         // Pick duration: 1x, 2x, 3x multiplier of company minimum duration (maxed at game maximumDuration)
         const maxLimit = game.maximumDuration || 180;

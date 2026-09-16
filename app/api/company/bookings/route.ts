@@ -12,6 +12,7 @@ import mongoose from "mongoose";
 
 import { parseIST } from "@/lib/time";
 import { updateBookingStatuses } from "@/lib/booking-status-updater";
+import { getCompanyMinDuration } from "@/lib/company-pricing";
 
 function parseDateTime(dateStr: string, timeStr: string, addDays: number = 0) {
   return parseIST(dateStr, timeStr, addDays);
@@ -65,10 +66,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Game not found" }, { status: 404 });
     }
 
-    const customConfig = company.gameConfigurations?.find(
-      (gc: any) => gc.gameId.toString() === gameId
-    );
-    const companyMinDuration = customConfig ? customConfig.minimumDuration : (game.duration || 60);
+    const companyMinDuration = getCompanyMinDuration(company, gameId, game.duration || 60);
 
     if (game.fixedSlotBooking) {
       const { validateFixedSlot } = await import("@/lib/fixed-slots");
@@ -202,6 +200,7 @@ export async function POST(request: Request) {
         startTime: bookingStart,
         endTime: bookingEnd,
         bookedDurationMinutes: durationMinutes,
+        billableSessionUnits: Math.ceil(durationMinutes / companyMinDuration),
         status: "BOOKED",
       })
     );
@@ -223,6 +222,7 @@ export async function POST(request: Request) {
           startTime: bookingStart,
           endTime: bookingEnd,
           bookedDurationMinutes: durationMinutes,
+          billableSessionUnits: Math.ceil(durationMinutes / companyMinDuration),
           status: "BOOKED",
         })
       );

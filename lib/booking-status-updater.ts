@@ -2,7 +2,9 @@ import { Booking } from "@/models/Booking";
 import { Game } from "@/models/Game";
 import { Notification } from "@/models/Notification";
 import { SessionEntry } from "@/models/SessionEntry";
+import { Company } from "@/models/Company";
 import { processOvertimeAndExit } from "@/lib/overtime-calculator";
+import { getCompanyMinDuration } from "@/lib/company-pricing";
 
 export async function updateBookingStatuses() {
   const now = new Date();
@@ -177,7 +179,14 @@ export async function updateBookingStatuses() {
     if (!game) continue;
 
     const maxDuration = game.maximumDuration || 180;
-    const minDuration = game.duration || 60;
+    let minDuration = game.duration || 60;
+
+    if (entry.userType === "COMPANY_EMPLOYEE" && entry.companyId) {
+      const company = await Company.findById(entry.companyId).lean();
+      if (company) {
+        minDuration = getCompanyMinDuration(company, entry.gameId, game.duration || 60);
+      }
+    }
 
     const playDurationMs = now.getTime() - new Date(entry.startTime).getTime();
     const playDurationMinutes = Math.floor(playDurationMs / (60 * 1000));

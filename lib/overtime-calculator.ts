@@ -5,6 +5,7 @@ import { AdditionalCharge } from "@/models/AdditionalCharge";
 import { SessionEntry } from "@/models/SessionEntry";
 import { Notification } from "@/models/Notification";
 import { Company } from "@/models/Company";
+import { getCompanyMinDuration } from "@/lib/company-pricing";
 
 export async function processOvertimeAndExit(
   bookingId: string,
@@ -23,13 +24,8 @@ export async function processOvertimeAndExit(
   let minimumUnit = game.duration || 60;
   if (booking.playerType === "COMPANY" && booking.companyId) {
     const companyObj = await Company.findById(booking.companyId).lean();
-    if (companyObj && companyObj.gameConfigurations) {
-      const customConfig = companyObj.gameConfigurations.find(
-        (gc: any) => gc.gameId.toString() === booking.gameId?.toString()
-      );
-      if (customConfig) {
-        minimumUnit = customConfig.minimumDuration;
-      }
+    if (companyObj) {
+      minimumUnit = getCompanyMinDuration(companyObj, booking.gameId, game.duration || 60);
     }
   }
 

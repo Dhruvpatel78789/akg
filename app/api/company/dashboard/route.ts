@@ -7,6 +7,7 @@ import { SessionEntry } from "@/models/SessionEntry";
 
 import { Game } from "@/models/Game";
 import { updateBookingStatuses } from "@/lib/booking-status-updater";
+import { getCompanyMinDuration } from "@/lib/company-pricing";
 
 async function populateGroupPlayers(sessionEntries: any[]) {
   if (!sessionEntries || sessionEntries.length === 0) return;
@@ -183,13 +184,10 @@ export async function GET() {
       mustChangePassword: employee.mustChangePassword,
     },
     allowedGames: (company.allowedGameIds || []).map((game: any) => {
-      const customConfig = company.gameConfigurations?.find(
-        (gc: any) => gc.gameId.toString() === game._id.toString()
-      );
       const gameObj = typeof game.toObject === "function" ? game.toObject() : game;
       return {
         ...gameObj,
-        duration: customConfig ? customConfig.minimumDuration : game.duration,
+        duration: getCompanyMinDuration(company, game._id, game.duration),
       };
     }),
     activeSession,
