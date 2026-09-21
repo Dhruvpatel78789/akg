@@ -80,4 +80,6 @@ const PlanSchema = new Schema(
   { timestamps: true }
 );
 
+PlanSchema.index({ active: 1, softDeleted: 1, type: 1 });
+
 export const Plan = models.Plan || mongoose.model("Plan", PlanSchema);

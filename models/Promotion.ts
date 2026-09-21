@@ -67,6 +67,8 @@ const PromotionSchema = new Schema(
   }
 );
 
+PromotionSchema.index({ placement: 1, active: 1, softDeleted: 1, priority: -1 });
+
 export const Promotion =
   models.Promotion ||
   mongoose.model("Promotion", PromotionSchema);

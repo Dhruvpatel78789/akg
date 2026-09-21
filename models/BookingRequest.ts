@@ -25,6 +25,9 @@ const BookingRequestSchema = new Schema(
   { timestamps: true }
 );
 
+BookingRequestSchema.index({ bookingId: 1, status: 1 });
+BookingRequestSchema.index({ userId: 1 });
+
 export const BookingRequest =
   models.BookingRequest ||
   mongoose.model("BookingRequest", BookingRequestSchema);

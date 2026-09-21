@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Coins, Dumbbell, Search, Wallet } from "lucide-react";
@@ -218,9 +219,11 @@ export default function MembershipPage() {
                   }}
                 >
                   {promo.type === "IMAGE" && promo.mediaUrl && (
-                    <img
+                    <Image
                       src={promo.mediaUrl}
-                      alt={promo.title}
+                      alt={promo.title || "Promotion image"}
+                      width={400}
+                      height={200}
                       className="absolute inset-0 h-full w-full object-cover"
                     />
                   )}

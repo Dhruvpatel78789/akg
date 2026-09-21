@@ -18,4 +18,6 @@ const OfferSchema = new Schema(
   { timestamps: true }
 );
 
+OfferSchema.index({ active: 1 });
+
 export const Offer = models.Offer || mongoose.model("Offer", OfferSchema);

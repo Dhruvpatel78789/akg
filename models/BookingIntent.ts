@@ -67,6 +67,10 @@ const BookingIntentSchema = new Schema(
   }
 );
 
+BookingIntentSchema.index({ razorpayOrderId: 1 });
+BookingIntentSchema.index({ status: 1, expiresAt: 1 });
+BookingIntentSchema.index({ phone: 1 });
+
 if (models.BookingIntent) {
   delete (models as any).BookingIntent;
 }

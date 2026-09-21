@@ -6,7 +6,6 @@ import { User } from "@/models/User";
 import { Game } from "@/models/Game";
 import { Court } from "@/models/court";
 import { PricingRule } from "@/models/PricingRule";
-import { updateBookingStatuses } from "@/lib/booking-status-updater";
 import mongoose from "mongoose";
 
 export async function GET() {
@@ -15,9 +14,6 @@ export async function GET() {
 
     const admin = await requireAdmin("passes", "viewPasses", false);
     if (admin.error) return admin.error;
-
-    // Run status updater first to auto-transition ongoing bookings
-    await updateBookingStatuses();
 
     // Fetch passes. Consider only bookings where payment button was clicked:
     // 1. paymentStatus is PAID

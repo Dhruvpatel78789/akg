@@ -9,17 +9,29 @@ export async function GET() {
 
     // Auto freeze expired user coins
     const { User } = await import("@/models/User");
-    const expiredUsers = await User.find({
+    const expiredUsersCount = await User.countDocuments({
       coinPlanExpiryDate: { $lt: new Date() },
       coinsAvailable: { $gt: 0 },
     });
-    for (const u of expiredUsers) {
-      u.coinsFrozen = u.coinsAvailable;
-      u.coinsAvailable = 0;
-      u.coins = 0;
-      u.coinsFrozenReason = `Plan expired on ${u.coinPlanExpiryDate ? new Date(u.coinPlanExpiryDate).toLocaleDateString("en-IN") : "unknown date"}`;
-      u.coinsFrozenAt = new Date();
-      await u.save();
+
+    if (expiredUsersCount > 0) {
+      await User.updateMany(
+        {
+          coinPlanExpiryDate: { $lt: new Date() },
+          coinsAvailable: { $gt: 0 },
+        },
+        [
+          {
+            $set: {
+              coinsFrozen: "$coinsAvailable",
+              coinsAvailable: 0,
+              coins: 0,
+              coinsFrozenReason: "Plan expired",
+              coinsFrozenAt: new Date(),
+            }
+          }
+        ]
+      );
     }
 
     // Auto expire unpaid booking intents

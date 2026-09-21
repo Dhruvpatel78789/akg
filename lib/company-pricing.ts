@@ -84,10 +84,10 @@ export async function getCompanyPricingRule(gameId: any, baseUnitMinutes: number
  * Scales proportionally if only a rule for a different duration exists.
  */
 export function calculateRatePerUnit(rule: any, baseUnitMinutes: number): number {
-  if (!rule) return 500;
+  if (!rule) return 0;
 
   let basePrice = rule.mode === "PER_PLAYER"
-    ? (rule.pricePerPlayer || 500)
+    ? (rule.pricePerPlayer || 0)
     : ((rule.baseCourtPrice || 0) + (rule.pricePerPlayer || 0));
 
   if (rule.durationMinutes && rule.durationMinutes !== baseUnitMinutes) {

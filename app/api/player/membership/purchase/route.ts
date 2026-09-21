@@ -367,7 +367,7 @@ export async function POST(request: Request) {
     // Generate Booking slots for each day of the membership period
     const [startH, startM] = startTime.split(":").map(Number);
     const [endH, endM] = endTime.split(":").map(Number);
-    const bookingPromises = [];
+    const bookingDocs = [];
     
     const startISTDateStr = formatToISTDate(baseDate);
 
@@ -380,25 +380,23 @@ export async function POST(request: Request) {
         currentDayEnd.setDate(currentDayEnd.getDate() + 1);
       }
 
-      bookingPromises.push(
-        Booking.create({
-          userId: user._id,
-          gameId: plan.gameId,
-          gameName: plan.gameName,
-          startTime: currentDayStart,
-          endTime: currentDayEnd,
-          price: 0,
-          coinCost: 0,
-          playersCount: duration.playersIncluded || 1,
-          crossMidnight: endH < startH || (endH === startH && endM < startM),
-          playerType: "MEMBER",
-          paymentMode: "coins",
-          paymentStatus: "PAID",
-          status: "BOOKED",
-        })
-      );
+      bookingDocs.push({
+        userId: user._id,
+        gameId: plan.gameId,
+        gameName: plan.gameName,
+        startTime: currentDayStart,
+        endTime: currentDayEnd,
+        price: 0,
+        coinCost: 0,
+        playersCount: duration.playersIncluded || 1,
+        crossMidnight: endH < startH || (endH === startH && endM < startM),
+        playerType: "MEMBER",
+        paymentMode: "coins",
+        paymentStatus: "PAID",
+        status: "BOOKED",
+      });
     }
-    await Promise.all(bookingPromises);
+    await Booking.insertMany(bookingDocs);
 
     await Transaction.create({
       userId: user._id,

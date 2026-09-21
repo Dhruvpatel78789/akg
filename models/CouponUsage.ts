@@ -10,4 +10,6 @@ const CouponUsageSchema = new Schema(
   { timestamps: true }
 );
 
+CouponUsageSchema.index({ couponId: 1, userId: 1 });
+
 export const CouponUsage = models.CouponUsage || mongoose.model("CouponUsage", CouponUsageSchema);

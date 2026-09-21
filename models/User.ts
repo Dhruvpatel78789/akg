@@ -43,6 +43,8 @@ const UserSchema = new Schema(
   { timestamps: true }
 );
 
+UserSchema.index({ role: 1 });
+
 UserSchema.pre("save", async function () {
   if (this.isModified("coins") && !this.isModified("coinsAvailable")) {
     this.coinsAvailable = this.coins;

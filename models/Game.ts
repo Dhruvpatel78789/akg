@@ -44,4 +44,6 @@ const GameSchema = new Schema(
   { timestamps: true }
 );
 
+GameSchema.index({ active: 1 });
+
 export const Game = models.Game || mongoose.model("Game", GameSchema);

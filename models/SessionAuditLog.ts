@@ -13,5 +13,7 @@ const SessionAuditLogSchema = new Schema(
   { timestamps: true }
 );
 
+SessionAuditLogSchema.index({ bookingId: 1 });
+
 export const SessionAuditLog =
   models.SessionAuditLog || mongoose.model("SessionAuditLog", SessionAuditLogSchema);

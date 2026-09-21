@@ -49,6 +49,9 @@ AdditionalChargeSchema.pre("save", async function () {
   }
 });
 
+AdditionalChargeSchema.index({ bookingId: 1 });
+AdditionalChargeSchema.index({ userId: 1, status: 1 });
+
 if (models.AdditionalCharge) {
   delete (models as any).AdditionalCharge;
 }

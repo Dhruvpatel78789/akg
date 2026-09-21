@@ -270,10 +270,6 @@ export async function POST(request: Request) {
         allowedGames = await Game.find({ softDeleted: false }).lean();
       }
 
-      console.log("Company:", company.name);
-      console.log("Configured Games:", configuredGames);
-      console.log("Allowed Games:", allowedGames);
-
       if (allowedGames.length === 0) {
         return NextResponse.json({ success: false, message: "No allowed games configured for this company" }, { status: 400 });
       }

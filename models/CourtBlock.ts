@@ -33,5 +33,7 @@ const CourtBlockSchema = new Schema(
 
 CourtBlockSchema.index({ gameId: 1, status: 1, blockedFrom: 1, blockedTo: 1 });
 
+CourtBlockSchema.index({ courtId: 1, status: 1 });
+
 export const CourtBlock =
   models.CourtBlock || mongoose.model("CourtBlock", CourtBlockSchema);

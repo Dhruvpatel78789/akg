@@ -12,5 +12,8 @@ const AdminAuditLogSchema = new Schema(
   { timestamps: true }
 );
 
+AdminAuditLogSchema.index({ adminId: 1 });
+AdminAuditLogSchema.index({ targetUserId: 1 });
+
 export const AdminAuditLog =
   models.AdminAuditLog || mongoose.model("AdminAuditLog", AdminAuditLogSchema);

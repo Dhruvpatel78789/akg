@@ -11,7 +11,6 @@ import { SessionEntry } from "@/models/SessionEntry";
 import mongoose from "mongoose";
 
 import { parseIST } from "@/lib/time";
-import { updateBookingStatuses } from "@/lib/booking-status-updater";
 import { getCompanyMinDuration } from "@/lib/company-pricing";
 
 function parseDateTime(dateStr: string, timeStr: string, addDays: number = 0) {
@@ -21,7 +20,6 @@ function parseDateTime(dateStr: string, timeStr: string, addDays: number = 0) {
 
 export async function POST(request: Request) {
   await connectDB();
-  await updateBookingStatuses();
 
   const authUser = await getAuthUser();
   if (!authUser || authUser.role !== "COMPANY_EMPLOYEE") {

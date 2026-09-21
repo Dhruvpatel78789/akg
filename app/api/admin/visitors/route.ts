@@ -12,13 +12,25 @@ export async function GET() {
 
     const visitors = await User.find({ role: "VISITOR" })
       .sort({ createdAt: -1 })
+      .limit(500)
       .lean();
+
+    const visitorIds = visitors.map((v: any) => v._id);
+    const allBookings = await Booking.find({ userId: { $in: visitorIds }, softDeleted: false })
+      .sort({ startTime: 1 })
+      .lean();
+
+    // Group bookings by userId
+    const bookingsByUser = new Map<string, any[]>();
+    for (const booking of allBookings) {
+      const key = booking.userId.toString();
+      if (!bookingsByUser.has(key)) bookingsByUser.set(key, []);
+      bookingsByUser.get(key)!.push(booking);
+    }
 
     const visitorData = [];
     for (const visitor of visitors) {
-      const bookings = await Booking.find({ userId: visitor._id, softDeleted: false })
-        .sort({ startTime: 1 })
-        .lean();
+      const bookings = bookingsByUser.get(visitor._id.toString()) || [];
       
       const completedBookings = bookings.filter(b => b.status === "COMPLETED" && b.exitedTime);
       const totalSpent = bookings.reduce((sum, b) => sum + (b.price || 0), 0);

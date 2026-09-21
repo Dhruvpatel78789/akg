@@ -30,7 +30,6 @@ export async function runCompanyMigration() {
       if (updated) {
         company.gameConfigurations = currentConfigs;
         await company.save();
-        console.log(`Initialized default game configurations for company: ${company.name}`);
       }
 
       // Automatically recalculate existing unbilled entries as part of this startup run

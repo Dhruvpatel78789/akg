@@ -33,8 +33,6 @@ export async function sendWhatsAppMessage(phone: string, message: string): Promi
         body: message,
       },
     };
-
-    console.log(`Sending WhatsApp message to ${normalizedPhone}: "${message}"`);
     
     const response = await fetch(url, {
       method: "POST",
@@ -51,7 +49,6 @@ export async function sendWhatsAppMessage(phone: string, message: string): Promi
       return false;
     }
 
-    console.log("WhatsApp message sent successfully:", data);
     return true;
   } catch (error) {
     console.error("Exception caught in sendWhatsAppMessage:", error);

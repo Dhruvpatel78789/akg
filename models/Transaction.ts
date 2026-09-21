@@ -26,6 +26,8 @@ const TransactionSchema = new Schema(
   { timestamps: true }
 );
 
+TransactionSchema.index({ userId: 1, createdAt: -1 });
+
 if (models.Transaction) {
   delete (models as any).Transaction;
 }

@@ -49,5 +49,8 @@ const MembershipSchema = new Schema(
   { timestamps: true }
 );
 
+MembershipSchema.index({ userId: 1, status: 1, membershipType: 1 });
+MembershipSchema.index({ planId: 1 });
+
 export const Membership =
   models.Membership || mongoose.model("Membership", MembershipSchema);

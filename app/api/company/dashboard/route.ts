@@ -6,7 +6,6 @@ import { Company } from "@/models/Company";
 import { SessionEntry } from "@/models/SessionEntry";
 
 import { Game } from "@/models/Game";
-import { updateBookingStatuses } from "@/lib/booking-status-updater";
 import { getCompanyMinDuration } from "@/lib/company-pricing";
 
 async function populateGroupPlayers(sessionEntries: any[]) {
@@ -73,8 +72,8 @@ async function populateGroupPlayers(sessionEntries: any[]) {
 }
 
 export async function GET() {
-  await connectDB();
-  await updateBookingStatuses();
+  try {
+    await connectDB();
 
   const authUser = await getAuthUser();
 
@@ -198,4 +197,11 @@ export async function GET() {
     currentPlaySeconds: activeSessionSeconds,
     serverTime: now,
   });
+  } catch (error: any) {
+    console.error("Company dashboard error:", error);
+    return NextResponse.json(
+      { error: error.message || "Internal server error" },
+      { status: 500 }
+    );
+  }
 }

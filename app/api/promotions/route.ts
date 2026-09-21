@@ -7,7 +7,8 @@ import { User } from "@/models/User";
 import { formatToISTDate, formatToISTTime } from "@/lib/time";
 
 export async function GET(request: Request) {
-  await connectDB();
+  try {
+    await connectDB();
 
   const { searchParams } = new URL(request.url);
   const placement = searchParams.get("placement");
@@ -91,5 +92,19 @@ export async function GET(request: Request) {
     return true;
   });
 
-  return NextResponse.json({ promotions: validPromotions });
+    return NextResponse.json(
+      { promotions: validPromotions },
+      {
+        headers: {
+          "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60",
+        },
+      }
+    );
+  } catch (error: any) {
+    console.error("Promotions error:", error);
+    return NextResponse.json(
+      { error: error.message || "Internal server error" },
+      { status: 500 }
+    );
+  }
 }

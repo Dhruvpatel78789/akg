@@ -13,6 +13,8 @@ const PaymentAuditLogSchema = new Schema(
   { timestamps: true }
 );
 
+PaymentAuditLogSchema.index({ payableId: 1 });
+
 export const PaymentAuditLog =
   models.PaymentAuditLog ||
   mongoose.model("PaymentAuditLog", PaymentAuditLogSchema);

@@ -12,7 +12,6 @@ import {
   Building2,
   AlertCircle
 } from "lucide-react";
-import jsQR from "jsqr";
 
 type DashboardUser = {
   id: string;
@@ -605,6 +604,7 @@ export default function CompanyDashboardPage() {
                               canvas.height = el.videoHeight;
                               ctx.drawImage(el, 0, 0, canvas.width, canvas.height);
                               const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                              const jsQR = (await import("jsqr")).default;
                               const code = jsQR(imgData.data, imgData.width, imgData.height, {
                                 inversionAttempts: "dontInvert",
                               });

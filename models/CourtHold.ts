@@ -40,6 +40,8 @@ const CourtHoldSchema = new Schema(
 // TTL index to automatically remove expired holds after their expiration time
 CourtHoldSchema.index({ holdExpiresAt: 1 }, { expireAfterSeconds: 0 });
 
+CourtHoldSchema.index({ courtId: 1, status: 1, startTime: 1, endTime: 1 });
+
 if (models.CourtHold) {
   delete (models as any).CourtHold;
 }

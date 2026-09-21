@@ -31,7 +31,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const company = await Company.findById(companyId);
+    const company = await Company.findById(companyId).lean();
     if (!company) {
       return NextResponse.json({ message: "Company not found" }, { status: 404 });
     }
@@ -59,11 +59,41 @@ export async function POST(request: Request) {
     let subtotalAmount = 0;
     const employeeIdsSet = new Set<string>();
 
+    const empIds = [...new Set(entries.map((e: any) => e.companyEmployeeId).filter(Boolean))];
+    const employees = await CompanyEmployee.find({ _id: { $in: empIds } }).lean();
+    const empById = new Map(employees.map((e: any) => [e._id.toString(), e]));
+
+    const gameIds = [...new Set(entries.map((e: any) => e.gameId))];
+    const games = await Game.find({ _id: { $in: gameIds } }).lean();
+    const gameById = new Map(games.map((g: any) => [g._id.toString(), g]));
+
+    const pricingRules = await PricingRule.find({ gameId: { $in: gameIds } }).lean();
+    const rulesByGame = new Map<string, any[]>();
+    for (const r of pricingRules) {
+      const gId = r.gameId.toString();
+      if (!rulesByGame.has(gId)) rulesByGame.set(gId, []);
+      rulesByGame.get(gId)!.push(r);
+    }
+    
+    const getInMemoryRule = (gId: string, duration: number) => {
+      const rules = rulesByGame.get(gId?.toString()) || [];
+      // 1. Try exact duration match for 1 player first
+      let r = rules.find((x: any) => x.durationMinutes === duration && (x.minPlayers ?? 1) <= 1 && (x.maxPlayers ?? 99) >= 1 && x.active !== false);
+      // 2. Try exact duration match for any player count
+      if (!r) r = rules.find((x: any) => x.durationMinutes === duration && x.active !== false);
+      // 3. Fallback: Any active rule for 1 player
+      if (!r) r = rules.find((x: any) => (x.minPlayers ?? 1) <= 1 && (x.maxPlayers ?? 99) >= 1 && x.active !== false);
+      // 4. Fallback: Any active rule for this game
+      if (!r) r = rules.find((x: any) => x.active !== false);
+      return r || null;
+    };
+
     for (const entry of entries) {
+      const game = gameById.get(entry.gameId?.toString());
       const baseUnitMinutes = getCompanyMinDuration(company, entry.gameId, game ? game.duration : 60);
 
       // Find pricing rule matching company's minimum duration
-      const rule = await getCompanyPricingRule(entry.gameId, baseUnitMinutes);
+      const rule = getInMemoryRule(entry.gameId, baseUnitMinutes);
 
       // Determine price per unit
       const ratePerUnit = calculateRatePerUnit(rule, baseUnitMinutes);
@@ -92,7 +122,7 @@ export async function POST(request: Request) {
 
       let employeeId = "";
       if (entry.companyEmployeeId) {
-        const empObj = await CompanyEmployee.findById(entry.companyEmployeeId).lean();
+        const empObj = empById.get(entry.companyEmployeeId.toString());
         if (empObj) {
           employeeId = empObj.employeeId;
         }

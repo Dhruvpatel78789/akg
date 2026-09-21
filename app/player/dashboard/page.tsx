@@ -14,8 +14,30 @@ import {
   Wallet,
   Coins,
   AlertCircle,
+  CreditCard,
 } from "lucide-react";
-import jsQR from "jsqr";
+import Image from "next/image";
+
+function ActiveSessionTimer({ initialSeconds }: { initialSeconds: number }) {
+  const [seconds, setSeconds] = useState(initialSeconds);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+
+  return (
+    <span className="font-mono">
+      {hrs > 0 ? `${hrs}h ` : ""}{mins}m {secs}s
+    </span>
+  );
+}
 
 type DashboardUser = {
   _id?: string;
@@ -413,7 +435,7 @@ export default function PlayerDashboardPage() {
       const res = await fetch("/api/player/pending-payments");
       const data = await res.json();
       if (res.ok && data.success) {
-        setPendingCharges(data.charges || []);
+        setPendingCharges(data.pendingItems || data.charges || []);
       }
     } catch (err) {
       console.error("Failed to load pending charges", err);
@@ -603,35 +625,6 @@ export default function PlayerDashboardPage() {
     return () => clearInterval(timer);
   }, [promotions]);
 
-  const [localActiveSeconds, setLocalActiveSeconds] = useState<number[]>([]);
-
-  // Synchronize local active seconds timers when data updates
-  useEffect(() => {
-    if (data?.activeSessions) {
-      const now = new Date();
-      setLocalActiveSeconds(
-        data.activeSessions.map((session: any) => {
-          return session.startTime
-            ? Math.max(0, Math.floor((now.getTime() - new Date(session.startTime).getTime()) / 1000))
-            : 0;
-        })
-      );
-    } else {
-      setLocalActiveSeconds([]);
-    }
-  }, [data?.activeSessions]);
-
-  // Live timer tick for all active sessions
-  useEffect(() => {
-    if (!data?.activeSessions || data.activeSessions.length === 0) return;
-
-    const timer = setInterval(() => {
-      setLocalActiveSeconds((prev) => prev.map((s) => s + 1));
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [data?.activeSessions]);
-
   const calendar = useMemo(
     () => getCalendar(data?.calendarSessions ?? []),
     [data?.calendarSessions]
@@ -712,7 +705,11 @@ export default function PlayerDashboardPage() {
     return null;
   }
 
-  const liveActiveTotalSeconds = localActiveSeconds.reduce((a, b) => a + b, 0);
+  const liveActiveTotalSeconds = (data.activeSessions || []).map((session: any) => {
+    return session.startTime
+      ? Math.max(0, Math.floor((new Date().getTime() - new Date(session.startTime).getTime()) / 1000))
+      : 0;
+  }).reduce((a: number, b: number) => a + b, 0);
   const serverActiveSeconds = (data.activeSessions || []).map((session: any) => {
     return session.startTime
       ? Math.max(0, Math.floor((new Date(data.serverTime || new Date()).getTime() - new Date(session.startTime).getTime()) / 1000))
@@ -957,24 +954,37 @@ export default function PlayerDashboardPage() {
                       <p className="text-xs text-gray-400 font-bold py-4 text-center">No pending payments.</p>
                     ) : (
                       <div className="grid gap-3 max-h-80 overflow-y-auto pr-1">
-                        {pendingCharges.map((charge) => (
+                        {pendingCharges.map((item) => (
                           <div 
-                            key={charge._id} 
+                            key={item._id} 
                             className="bg-rose-50 border border-rose-100 p-4 rounded-2xl flex flex-col justify-between md:flex-row md:items-center gap-3 text-left"
                           >
                             <div>
-                              <h4 className="text-xs font-black text-rose-900">{charge.reason}</h4>
-                              <p className="text-xs text-rose-800 font-bold mt-1">Amount: ₹{charge.amount}</p>
+                              <h4 className="text-xs font-black text-rose-900">{item.title || item.reason}</h4>
+                              {item.date && (
+                                <p className="text-[11px] text-rose-700 font-medium mt-0.5">
+                                  Date: {new Date(item.date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                                  {item.startTime ? ` (${item.startTime})` : ""}
+                                </p>
+                              )}
+                              <p className="text-xs text-rose-800 font-bold mt-1">Amount: ₹{item.amount}</p>
                               <p className="text-[10px] text-rose-600 font-semibold uppercase mt-0.5">
-                                Status: {charge.status === "AWAITING_SETTLEMENT" ? "Awaiting Settlement" : "Pending"}
+                                Status: {item.status === "AWAITING_SETTLEMENT" ? "Awaiting Settlement" : "Pending Payment"}
                               </p>
                             </div>
-                            {charge.status === "PENDING" && (
+                            {(item.status === "PENDING" || item.status === "PENDING_PAYMENT") && (
                               <button
-                                onClick={() => handlePayCharge(charge)}
-                                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black transition active:scale-95 cursor-pointer shadow-sm text-center shrink-0"
+                                onClick={() => {
+                                  if (item.checkoutUrl) {
+                                    router.push(item.checkoutUrl);
+                                  } else {
+                                    handlePayCharge(item);
+                                  }
+                                }}
+                                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black transition active:scale-95 cursor-pointer shadow-sm text-center shrink-0 flex items-center justify-center gap-1.5"
                               >
-                                Pay Now
+                                <CreditCard className="w-3.5 h-3.5" />
+                                <span>Pay Now</span>
                               </button>
                             )}
                           </div>
@@ -1033,9 +1043,11 @@ export default function PlayerDashboardPage() {
                   >
                     {/* Media backgrounds */}
                     {promo.type === "IMAGE" && promo.mediaUrl && (
-                      <img
+                      <Image
                         src={promo.mediaUrl}
                         alt={promo.altText || promo.title || "Ad"}
+                        width={400}
+                        height={200}
                         className="absolute inset-0 h-full w-full object-cover"
                       />
                     )}
@@ -1253,8 +1265,9 @@ export default function PlayerDashboardPage() {
         {data.activeSessions && data.activeSessions.length > 0 && (
           <section className="mt-7 space-y-6">
             {data.activeSessions.map((session: any, sIdx: number) => {
-              const localSecs = localActiveSeconds[sIdx] || 0;
-              const formattedLocal = formatSeconds(localSecs);
+              const initialSecs = session.startTime
+                ? Math.max(0, Math.floor((new Date().getTime() - new Date(session.startTime).getTime()) / 1000))
+                : 0;
               const derivedStatus = getBookingDisplayStatus(session);
               const badgeStyle = 
                 derivedStatus === "Booked" || derivedStatus === "Confirmed" || derivedStatus === "Completed"
@@ -1307,7 +1320,7 @@ export default function PlayerDashboardPage() {
                     <div>
                       <span className="text-[10px] uppercase text-gray-400 font-black">Current Duration</span>
                       <p className="text-sm text-emerald-600 font-black">
-                        {formattedLocal.hours === "00" ? "" : `${formattedLocal.hours}h `}{formattedLocal.minutes} Minutes
+                        <ActiveSessionTimer initialSeconds={initialSecs} />
                       </p>
                     </div>
                   </div>
@@ -1782,6 +1795,7 @@ export default function PlayerDashboardPage() {
                   canvas.height = el.videoHeight;
                               ctx.drawImage(el, 0, 0, canvas.width, canvas.height);
                               const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                              const jsQR = (await import("jsqr")).default;
                               const code = jsQR(imgData.data, imgData.width, imgData.height, {
                                 inversionAttempts: "dontInvert",
                               });

@@ -35,4 +35,6 @@ const CompanyBillSchema = new Schema(
   { timestamps: true }
 );
 
+CompanyBillSchema.index({ companyId: 1, status: 1, softDeleted: 1 });
+
 export const CompanyBill = models.CompanyBill || mongoose.model("CompanyBill", CompanyBillSchema);

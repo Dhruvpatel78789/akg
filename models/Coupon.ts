@@ -57,4 +57,6 @@ CouponSchema.pre("save", function () {
   }
 });
 
+CouponSchema.index({ active: 1, expiryDate: 1 });
+
 export const Coupon = models.Coupon || mongoose.model("Coupon", CouponSchema);

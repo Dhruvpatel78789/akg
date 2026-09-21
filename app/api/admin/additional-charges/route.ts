@@ -18,11 +18,15 @@ export async function GET() {
       status: { $in: ["PENDING", "AWAITING_SETTLEMENT"] }
     }).populate("bookingId");
 
+    const gameIds = [...new Set(pendingCharges.map((c: any) => c.bookingId?.gameId).filter(Boolean))];
+    const games = await Game.find({ _id: { $in: gameIds } }).lean();
+    const gameById = new Map(games.map((g: any) => [g._id.toString(), g]));
+
     for (const charge of pendingCharges) {
       const booking: any = charge.bookingId;
       if (!booking || !booking.startTime || !booking.endTime || !booking.exitedTime) continue;
 
-      const game = await Game.findById(booking.gameId).lean();
+      const game = gameById.get(booking.gameId?.toString());
       if (!game) continue;
 
       const minDuration = game.duration || 60;

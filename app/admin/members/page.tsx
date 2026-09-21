@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { X, FileSpreadsheet, Printer, User, Award, Calendar, History, CreditCard } from "lucide-react";
+import { useDebounce } from "@/lib/hooks/useDebounce";
 
 type Member = {
   _id: string;
@@ -123,6 +124,7 @@ export default function AdminMembersPage() {
   const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const [visitorConversionRequired, setVisitorConversionRequired] = useState(false);
   const [visitorConversionPlayer, setVisitorConversionPlayer] = useState<any | null>(null);
   const [createMemSubmitting, setCreateMemSubmitting] = useState(false);
@@ -251,25 +253,27 @@ export default function AdminMembersPage() {
     }
   }
 
-  async function handlePlayerSearch(val: string) {
-    setSearchQuery(val);
-    if (!val || val.trim().length < 2) {
-      setSearchSuggestions([]);
-      setShowSuggestions(false);
-      return;
-    }
-
-    try {
-      const res = await fetch(`/api/admin/player-search?q=${encodeURIComponent(val)}`);
-      const data = await res.json();
-      if (res.ok && data.results) {
-        setSearchSuggestions(data.results);
-        setShowSuggestions(data.results.length > 0);
+  useEffect(() => {
+    async function fetchPlayers() {
+      if (!debouncedSearchQuery || debouncedSearchQuery.trim().length < 3) {
+        setSearchSuggestions([]);
+        setShowSuggestions(false);
+        return;
       }
-    } catch (err) {
-      console.error("Autocomplete search failed", err);
+
+      try {
+        const res = await fetch(`/api/admin/player-search?q=${encodeURIComponent(debouncedSearchQuery)}`);
+        const data = await res.json();
+        if (res.ok && data.results) {
+          setSearchSuggestions(data.results);
+          setShowSuggestions(data.results.length > 0);
+        }
+      } catch (err) {
+        console.error("Autocomplete search failed", err);
+      }
     }
-  }
+    fetchPlayers();
+  }, [debouncedSearchQuery]);
 
   async function handleSelectSuggestion(player: any) {
     setConfirmUserId(player.id);
@@ -1384,7 +1388,7 @@ export default function AdminMembersPage() {
                           type="text"
                           placeholder="Type Name, Phone, Email or Booking name to search..."
                           value={searchQuery}
-                          onChange={(e) => handlePlayerSearch(e.target.value)}
+                          onChange={(e) => setSearchQuery(e.target.value)}
                           className="h-10 bg-gray-50 rounded-xl px-3 border outline-none text-xs font-bold focus:ring-1 focus:ring-[var(--primary)] text-gray-700"
                         />
                         {showSuggestions && searchSuggestions.length > 0 && (

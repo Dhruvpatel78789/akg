@@ -105,11 +105,6 @@ export default function AdminPassesPage() {
         }
       })
       .catch((e) => console.error("Error syncing server time:", e));
-
-    const timer = setInterval(() => {
-      setCurrentTime(new Date(Date.now() + drift));
-    }, 1000);
-    return () => clearInterval(timer);
   }, []);
 
   // Fetch current user & role details

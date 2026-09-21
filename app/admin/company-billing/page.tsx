@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { Wallet, Calendar, Plus, Trash2, Printer, Check, CheckSquare, X } from "lucide-react";
 
 type Company = {
@@ -313,7 +314,7 @@ export default function AdminCompanyBillingPage() {
               {/* Dynamic printable letterhead backdrop */}
               {settings?.billingLetterheadUrl && (
                 <div className="print-letterhead hidden">
-                  <img src={settings.billingLetterheadUrl} alt="Letterhead Background" />
+                  <Image src={settings.billingLetterheadUrl} alt="Letterhead Background" width={800} height={400} />
                 </div>
               )}
               {/* Printable overlay style */}

@@ -45,6 +45,8 @@ const DependencyBlockSchema = new Schema(
   { timestamps: true }
 );
 
+DependencyBlockSchema.index({ blockedGameId: 1, status: 1, startTime: 1, endTime: 1 });
+
 if (models.DependencyBlock) {
   delete (models as any).DependencyBlock;
 }

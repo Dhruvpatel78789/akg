@@ -21,8 +21,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={exo.variable} suppressHydrationWarning>
-        <FetchErrorSanitizer />
-        {children}
+        <FetchErrorSanitizer>
+          {children}
+        </FetchErrorSanitizer>
       </body>
     </html>
   );

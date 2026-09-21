@@ -48,4 +48,12 @@ const SessionEntrySchema = new Schema(
   { timestamps: true }
 );
 
+SessionEntrySchema.index({ bookingId: 1 });
+SessionEntrySchema.index({ status: 1, startTime: 1, softDeleted: 1 });
+SessionEntrySchema.index({ userId: 1, status: 1 });
+SessionEntrySchema.index({ gameId: 1, status: 1 });
+SessionEntrySchema.index({ entryType: 1, status: 1 });
+SessionEntrySchema.index({ companyId: 1, gameId: 1, entryType: 1 });
+SessionEntrySchema.index({ parentEntryId: 1 });
+
 export const SessionEntry = models.SessionEntry || mongoose.model("SessionEntry", SessionEntrySchema);

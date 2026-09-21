@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { Plus, Trash2, Tag, Percent, Calendar, Hourglass, CheckSquare, Square, ToggleLeft, ToggleRight } from "lucide-react";
 
 type Promotion = {
@@ -938,9 +939,11 @@ export default function AdminPromotionsPage() {
               >
                 {/* Media Background Preview */}
                 {promoForm.type === "IMAGE" && promoForm.mediaUrl && (
-                  <img
+                  <Image
                     src={promoForm.mediaUrl}
                     alt={promoForm.altText || "Preview"}
+                    width={400}
+                    height={200}
                     className="absolute inset-0 h-full w-full object-cover"
                   />
                 )}

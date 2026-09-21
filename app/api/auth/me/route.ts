@@ -45,8 +45,10 @@ export async function GET() {
   }
 
   const { Membership } = await import("@/models/Membership");
-  const activeFixed = await Membership.findOne({ userId: user._id, status: "ACTIVE", membershipType: "FIXED" }).populate("planId").lean();
-  const activeCoins = await Membership.findOne({ userId: user._id, status: "ACTIVE", membershipType: "COINS" }).populate("planId").lean();
+  const [activeFixed, activeCoins] = await Promise.all([
+    Membership.findOne({ userId: user._id, status: "ACTIVE", membershipType: "FIXED" }).populate("planId").lean(),
+    Membership.findOne({ userId: user._id, status: "ACTIVE", membershipType: "COINS" }).populate("planId").lean(),
+  ]);
   const accountType = activeFixed ? "MEMBER" : activeCoins ? "COIN_MEMBER" : "PLAYER";
 
   const userRole = await UserRole.findOne({ userId: user._id }).lean();

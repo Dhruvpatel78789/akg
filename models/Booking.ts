@@ -84,6 +84,11 @@ const BookingSchema = new Schema(
 
 BookingSchema.index({ gameId: 1, status: 1, softDeleted: 1, startTime: 1, endTime: 1 });
 BookingSchema.index({ userId: 1 });
+BookingSchema.index({ status: 1, startTime: 1, softDeleted: 1 });
+BookingSchema.index({ paymentStatus: 1, paymentMethod: 1, createdAt: 1 });
+BookingSchema.index({ companyId: 1, status: 1 });
+BookingSchema.index({ razorpayOrderId: 1 });
+BookingSchema.index({ court: 1, status: 1, startTime: 1 });
 
 BookingSchema.pre("save", async function () {
   const doc = this as any;

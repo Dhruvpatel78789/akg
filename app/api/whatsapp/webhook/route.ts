@@ -12,7 +12,6 @@ export async function GET(request: Request) {
 
   if (mode && token) {
     if (mode === "subscribe" && token === verifyToken) {
-      console.log("WhatsApp Webhook verified successfully.");
       return new Response(challenge, { status: 200 });
     }
   }
@@ -24,7 +23,6 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    console.log("Inbound WhatsApp payload:", JSON.stringify(body));
 
     const entry = body.entry?.[0];
     const change = entry?.changes?.[0];

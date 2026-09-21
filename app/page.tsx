@@ -34,14 +34,136 @@ const hookMessages = [
   "💙 Welcome back, Player!"
 ];
 
+function RotatingHooks({ hooks }: { hooks: string[] }) {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    if (!hooks || hooks.length === 0) return;
+    const timer = setInterval(() => setIndex((prev) => (prev + 1) % hooks.length), 1500);
+    return () => clearInterval(timer);
+  }, [hooks.length]);
+  return <>{hooks[index]}</>;
+}
+
+function PromotionsSlider({ promotions }: { promotions: any[] }) {
+  const [activeAd, setActiveAd] = useState(0);
+  useEffect(() => {
+    if (promotions.length <= 1) return;
+    const timer = setInterval(() => setActiveAd((prev) => (prev + 1) % promotions.length), 2500);
+    return () => clearInterval(timer);
+  }, [promotions.length]);
+
+  if (promotions.length === 0) return null;
+
+  return (
+    <section className="relative min-h-0 flex-1 overflow-hidden rounded-[2.5rem]">
+      <div
+        className="flex h-full transition-transform duration-700 ease-in-out"
+        style={{
+          width: `${promotions.length * 100}%`,
+          transform: `translateX(-${activeAd * (100 / promotions.length)}%)`,
+        }}
+      >
+        {promotions.map((promo, index) => {
+          const mediaUrl = promo.mediaUrl || promo.imageUrl;
+          const hasText = Boolean(promo.title || promo.description || promo.subtitle);
+          const content = (
+            <div className="relative h-full w-full">
+              {mediaUrl && (promo.type === "IMAGE" || !promo.type) && (
+                <Image
+                  src={mediaUrl}
+                  alt={promo.altText || promo.title || "Promotion"}
+                  fill
+                  priority={index === 0}
+                  unoptimized
+                  className="object-cover object-center"
+                />
+              )}
+              {mediaUrl && promo.type === "VIDEO" && (
+                <video
+                  src={mediaUrl}
+                  className="absolute inset-0 h-full w-full object-cover"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                />
+              )}
+              {hasText && (
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+              )}
+              {hasText && (
+                <div className="absolute bottom-10 left-6 right-6 text-white">
+                  {promo.title && (
+                    <h3 className="text-2xl font-black md:text-3xl leading-snug">
+                      {promo.title}
+                    </h3>
+                  )}
+                  {promo.description && (
+                    <p className="mt-2 text-xs font-bold opacity-90 md:text-sm line-clamp-2">
+                      {promo.description}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+
+          const containerStyle = {
+            width: `${100 / promotions.length}%`,
+            background: promo.type === "TEXT"
+              ? (promo.backgroundColor || "var(--primary)")
+              : "black",
+          };
+
+          if (promo.ctaLink) {
+            return (
+              <Link
+                href={promo.ctaLink}
+                key={promo._id || index}
+                className="relative h-full overflow-hidden shadow-xl"
+                style={containerStyle}
+              >
+                {content}
+              </Link>
+            );
+          }
+
+          return (
+            <div
+              key={promo._id || index}
+              className="relative h-full overflow-hidden shadow-xl"
+              style={containerStyle}
+            >
+              {content}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="absolute bottom-5 left-0 right-0 flex justify-center gap-2">
+        {promotions.map((_, index) => (
+          <button
+            key={index}
+            aria-label={`Show promotion ${index + 1}`}
+            onClick={() => setActiveAd(index)}
+            className={`h-2 rounded-full transition-all ${
+              activeAd === index
+                ? "w-7 bg-[var(--accent)]"
+                : "w-2 bg-white/50"
+            }`}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function HomePage() {
   const router = useRouter();
-  const [activeAd, setActiveAd] = useState(0);
   const [user, setUser] = useState<any>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [promotions, setPromotions] = useState<any[]>([]);
   const [checkingAuth, setCheckingAuth] = useState(true);
-  const [hookIndex, setHookIndex] = useState(0);
 
   // Authenticate session on load
   useEffect(() => {
@@ -84,25 +206,6 @@ export default function HomePage() {
     };
   }, [router]);
 
-  // Rotate ads
-  useEffect(() => {
-    if (promotions.length === 0) return;
-    const timer = setInterval(() => {
-      setActiveAd((prev) => (prev + 1) % promotions.length);
-    }, 2500);
-
-    return () => clearInterval(timer);
-  }, [promotions]);
-
-  // Rotate loading screen hook messages
-  useEffect(() => {
-    if (!checkingAuth) return;
-    const timer = setInterval(() => {
-      setHookIndex((prev) => (prev + 1) % hookMessages.length);
-    }, 1500);
-    return () => clearInterval(timer);
-  }, [checkingAuth]);
-
   const coins = user?.coins || 0;
 
   if (checkingAuth) {
@@ -133,7 +236,7 @@ export default function HomePage() {
         {/* Hook Message */}
         <div className="h-12 flex items-center justify-center px-4 max-w-sm text-center">
           <p className="text-sm font-bold text-gray-200 transition-opacity duration-300">
-            {hookMessages[hookIndex]}
+            <RotatingHooks hooks={hookMessages} />
           </p>
         </div>
 
@@ -236,106 +339,7 @@ export default function HomePage() {
         </header>
 
         {promotions.length > 0 && (
-          <section className="relative min-h-0 flex-1 overflow-hidden rounded-[2.5rem]">
-            <div
-              className="flex h-full transition-transform duration-700 ease-in-out"
-              style={{
-                width: `${promotions.length * 100}%`,
-                transform: `translateX(-${activeAd * (100 / promotions.length)}%)`,
-              }}
-            >
-              {promotions.map((promo, index) => {
-                const mediaUrl = promo.mediaUrl || promo.imageUrl;
-                const hasText = Boolean(promo.title || promo.description || promo.subtitle);
-                const content = (
-                  <div className="relative h-full w-full">
-                    {mediaUrl && (promo.type === "IMAGE" || !promo.type) && (
-                      <Image
-                        src={mediaUrl}
-                        alt={promo.altText || promo.title || "Promotion"}
-                        fill
-                        priority={index === 0}
-                        unoptimized
-                        className="object-cover object-center"
-                      />
-                    )}
-                    {mediaUrl && promo.type === "VIDEO" && (
-                      <video
-                        src={mediaUrl}
-                        className="absolute inset-0 h-full w-full object-cover"
-                        autoPlay
-                        muted
-                        loop
-                        playsInline
-                      />
-                    )}
-                    {hasText && (
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                    )}
-                    {hasText && (
-                      <div className="absolute bottom-10 left-6 right-6 text-white">
-                        {promo.title && (
-                          <h3 className="text-2xl font-black md:text-3xl leading-snug">
-                            {promo.title}
-                          </h3>
-                        )}
-                        {promo.description && (
-                          <p className="mt-2 text-xs font-bold opacity-90 md:text-sm line-clamp-2">
-                            {promo.description}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-
-                const containerStyle = {
-                  width: `${100 / promotions.length}%`,
-                  background: promo.type === "TEXT"
-                    ? (promo.backgroundColor || "var(--primary)")
-                    : "black",
-                };
-
-                if (promo.ctaLink) {
-                  return (
-                    <Link
-                      href={promo.ctaLink}
-                      key={promo._id || index}
-                      className="relative h-full overflow-hidden shadow-xl"
-                      style={containerStyle}
-                    >
-                      {content}
-                    </Link>
-                  );
-                }
-
-                return (
-                  <div
-                    key={promo._id || index}
-                    className="relative h-full overflow-hidden shadow-xl"
-                    style={containerStyle}
-                  >
-                    {content}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="absolute bottom-5 left-0 right-0 flex justify-center gap-2">
-              {promotions.map((_, index) => (
-                <button
-                  key={index}
-                  aria-label={`Show promotion ${index + 1}`}
-                  onClick={() => setActiveAd(index)}
-                  className={`h-2 rounded-full transition-all ${
-                    activeAd === index
-                      ? "w-7 bg-[var(--accent)]"
-                      : "w-2 bg-white/50"
-                  }`}
-                />
-              ))}
-            </div>
-          </section>
+          <PromotionsSlider promotions={promotions} />
         )}
 
         <nav className="grid shrink-0 grid-cols-4 gap-3 pt-4">

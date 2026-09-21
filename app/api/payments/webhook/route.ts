@@ -26,7 +26,6 @@ export async function POST(request: Request) {
     }
 
     const body = JSON.parse(rawBody);
-    console.log("Razorpay Webhook received and verified:", body);
     
     const event = body.event;
     const paymentEntity = body.payload?.payment?.entity;
@@ -192,10 +191,8 @@ export async function POST(request: Request) {
     // Resolve BookingIntent (voice/wa visitors)
     if (isPaidEvent) {
       const result = await resolveBookingIntent(orderId, paymentId, "PAID");
-      console.log("Webhook BookingIntent resolution result:", result);
     } else if (isFailedEvent) {
       const result = await resolveBookingIntent(orderId, paymentId || "failed", "FAILED");
-      console.log("Webhook BookingIntent failure logged:", result);
     }
 
     return NextResponse.json({ success: true });

@@ -49,17 +49,35 @@ export async function GET(request: Request) {
         { phone: searchRegex },
         { email: searchRegex }
       ]
-    }).limit(20);
+    }).limit(20).lean();
+
+    const userIds = users.map((u: any) => u._id);
+    const [lastBookings, activeFixedMemberships, activeCoinsMemberships] = await Promise.all([
+      Booking.find({ userId: { $in: userIds } }).sort({ startTime: -1 }).lean(),
+      Membership.find({ userId: { $in: userIds }, status: "ACTIVE", membershipType: "FIXED" }).lean(),
+      Membership.find({ userId: { $in: userIds }, status: "ACTIVE", membershipType: "COINS" }).lean(),
+    ]);
+
+    // Create lookup maps
+    const lastBookingByUser = new Map<string, any>();
+    for (const b of lastBookings) {
+      const key = b.userId.toString();
+      if (!lastBookingByUser.has(key)) lastBookingByUser.set(key, b); // first is latest due to sort
+    }
+    const fixedByUser = new Map<string, any>();
+    for (const m of activeFixedMemberships) fixedByUser.set(m.userId.toString(), m);
+    const coinsByUser = new Map<string, any>();
+    for (const m of activeCoinsMemberships) coinsByUser.set(m.userId.toString(), m);
 
     const results = [];
 
     for (const u of users) {
       // Get last booking
-      const lastBooking = await Booking.findOne({ userId: u._id }).sort({ startTime: -1 });
+      const lastBooking = lastBookingByUser.get(u._id.toString());
 
       // Get active memberships
-      const activeFixed = await Membership.findOne({ userId: u._id, status: "ACTIVE", membershipType: "FIXED" });
-      const activeCoins = await Membership.findOne({ userId: u._id, status: "ACTIVE", membershipType: "COINS" });
+      const activeFixed = fixedByUser.get(u._id.toString());
+      const activeCoins = coinsByUser.get(u._id.toString());
 
       // Identify record type
       let accountType = "Player";

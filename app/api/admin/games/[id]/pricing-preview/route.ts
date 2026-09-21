@@ -30,10 +30,8 @@ export async function POST(
 
   const { id } = await params;
   const body = await request.json();
-  console.log("PRICING PREVIEW BODY:", body);
 
   const result = schema.safeParse(body);
-  console.log("PRICING PREVIEW RESULT:", result);
 
   if (!result.success) {
     return NextResponse.json(
@@ -43,7 +41,6 @@ export async function POST(
   }
 
   const { playersIncluded, months, days, perDayDuration } = result.data;
-  console.log("PRICING PREVIEW PARSED VALUES:", { playersIncluded, months, days, perDayDuration });
   const totalDays = calculateTotalDays(months, days);
 
   if (totalDays <= 0) {

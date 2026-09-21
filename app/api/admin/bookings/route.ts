@@ -5,7 +5,6 @@ import { Booking } from "@/models/Booking";
 import { BookingRequest } from "@/models/BookingRequest";
 import { User } from "@/models/User";
 import { Transaction } from "@/models/Transaction";
-import { updateBookingStatuses } from "@/lib/booking-status-updater";
 import { Notification } from "@/models/Notification";
 import { Game } from "@/models/Game";
 import { Company } from "@/models/Company";
@@ -53,9 +52,6 @@ export async function GET(request: Request) {
     if (!hasAnyView) {
       return NextResponse.json({ message: "Forbidden" }, { status: 403 });
     }
-
-    // Automate future bookings -> active sessions -> completed history transitions
-    await updateBookingStatuses();
 
     const now = new Date();
 
@@ -168,72 +164,81 @@ export async function GET(request: Request) {
       timeChangeQuery.createdAt = { $gte: rangeStart, $lte: rangeEnd };
     }
 
-    const advancedBookings = getSubPermission("advancedBookings").view
-      ? await Booking.find(advQuery)
-          .populate("userId", "name phone email role")
-          .populate("companyId", "name")
-          .populate("companyEmployeeId", "name mobile email employeeId")
-          .sort({ startTime: 1 })
-          .lean()
-      : [];
-
-    // Ongoing sessions are critical to always view in real-time on active courts
-    const ongoingSessions = getSubPermission("ongoingSessions").view
-      ? await Booking.find({
-          status: "STARTED",
-          paymentStatus: "PAID",
-          softDeleted: false,
-        })
-          .populate("userId", "name phone email role")
-          .populate("companyId", "name")
-          .populate("companyEmployeeId", "name mobile email employeeId")
-          .sort({ startTime: 1 })
-          .lean()
-      : [];
-
-    const bookingHistory = getSubPermission("bookingHistory").view
-      ? await Booking.find(histQuery)
-          .populate("userId", "name phone email role")
-          .populate("companyId", "name")
-          .populate("companyEmployeeId", "name mobile email employeeId")
-          .sort({ endTime: -1 })
-          .limit(200)
-          .lean()
-      : [];
-
-    const pendingPayments = getSubPermission("pendingPayments").view
-      ? await Booking.find(pendingQuery)
-          .populate("userId", "name phone email role")
-          .populate("companyId", "name")
-          .populate("companyEmployeeId", "name mobile email employeeId")
-          .sort({ createdAt: -1 })
-          .lean()
-      : [];
-
-    const failedPayments = getSubPermission("failedPayments").view
-      ? await Booking.find(failedQuery)
-          .populate("userId", "name phone email role")
-          .populate("companyId", "name")
-          .populate("companyEmployeeId", "name mobile email employeeId")
-          .sort({ createdAt: -1 })
-          .lean()
-      : [];
-
-    const cancellationRequests = getSubPermission("cancellationRequests").view
-      ? await BookingRequest.find(cancelQuery)
-          .populate("userId", "name phone email role")
-          .populate("bookingId")
-          .sort({ createdAt: -1 })
-          .lean()
-      : [];
-
-    const timeChangeRequests = getSubPermission("timeChangeRequests").view
-      ? await BookingRequest.find(timeChangeQuery)
-          .populate("userId", "name phone email role")
-          .populate("bookingId")
-          .sort({ createdAt: -1 })
-          .lean()
-      : [];
+    const [
+      advancedBookings,
+      ongoingSessions,
+      bookingHistory,
+      pendingPayments,
+      failedPayments,
+      cancellationRequests,
+      timeChangeRequests
+    ] = await Promise.all([
+      getSubPermission("advancedBookings").view
+        ? Booking.find(advQuery)
+            .populate("userId", "name phone email role")
+            .populate("companyId", "name")
+            .populate("companyEmployeeId", "name mobile email employeeId")
+            .sort({ startTime: 1 })
+            .limit(200)
+            .lean()
+        : Promise.resolve([]),
+      getSubPermission("ongoingSessions").view
+        ? Booking.find({
+            status: "STARTED",
+            paymentStatus: "PAID",
+            softDeleted: false,
+          })
+            .populate("userId", "name phone email role")
+            .populate("companyId", "name")
+            .populate("companyEmployeeId", "name mobile email employeeId")
+            .sort({ startTime: 1 })
+            .limit(200)
+            .lean()
+        : Promise.resolve([]),
+      getSubPermission("bookingHistory").view
+        ? Booking.find(histQuery)
+            .populate("userId", "name phone email role")
+            .populate("companyId", "name")
+            .populate("companyEmployeeId", "name mobile email employeeId")
+            .sort({ endTime: -1 })
+            .limit(200)
+            .lean()
+        : Promise.resolve([]),
+      getSubPermission("pendingPayments").view
+        ? Booking.find(pendingQuery)
+            .populate("userId", "name phone email role")
+            .populate("companyId", "name")
+            .populate("companyEmployeeId", "name mobile email employeeId")
+            .sort({ createdAt: -1 })
+            .limit(200)
+            .lean()
+        : Promise.resolve([]),
+      getSubPermission("failedPayments").view
+        ? Booking.find(failedQuery)
+            .populate("userId", "name phone email role")
+            .populate("companyId", "name")
+            .populate("companyEmployeeId", "name mobile email employeeId")
+            .sort({ createdAt: -1 })
+            .limit(200)
+            .lean()
+        : Promise.resolve([]),
+      getSubPermission("cancellationRequests").view
+        ? BookingRequest.find(cancelQuery)
+            .populate("userId", "name phone email role")
+            .populate("bookingId")
+            .sort({ createdAt: -1 })
+            .limit(200)
+            .lean()
+        : Promise.resolve([]),
+      getSubPermission("timeChangeRequests").view
+        ? BookingRequest.find(timeChangeQuery)
+            .populate("userId", "name phone email role")
+            .populate("bookingId")
+            .sort({ createdAt: -1 })
+            .limit(200)
+            .lean()
+        : Promise.resolve([])
+    ]);
 
     return NextResponse.json({
       advancedBookings,
